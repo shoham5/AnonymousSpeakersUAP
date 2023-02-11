@@ -1,0 +1,26 @@
+LIT:
+  model_path: 'models/LIT'
+  weights_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/LIT//weights/weights.pth'
+  input_size: 1600
+  output_size: 500
+ADMM_bounded:
+  model_path: 'models/ADMM'
+  weights_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/ADMM//weights/admm_bounded.pt'
+ADMM_converged:
+  model_path: 'models/ADMM'
+  weights_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/ADMM//weights/admm_converged.pt'
+Le_ADMM:
+  model_path: 'models/ADMM'
+  weights_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/ADMM//weights/le_admm.pt'
+Le_ADMM_S:
+  model_path: 'models/ADMM'
+  weights_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/ADMM//weights/le_admm_s.pt'
+Le_ADMM_U:
+  model_path: 'models/ADMM'
+  weights_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/ADMM//weights/le_admm_u.pt'
+UNet:
+  model_path: 'models/ADMM'
+  weights_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/ADMM//weights/unet.pt'
+ECPA_TDNN:
+  model_path: 'models/ADMM'
+  classifier_path: '/dt/shabtaia/dt-fujitsu/Lensless_imaging/Models/ADMM//weights/unet.pt'
