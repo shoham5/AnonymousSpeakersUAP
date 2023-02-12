@@ -1,0 +1,3 @@
+LIBRI:
+  dataset_name: 'LIBRI'
+  root_path: 'data/LIBRI/d3'

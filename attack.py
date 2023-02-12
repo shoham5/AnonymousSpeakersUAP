@@ -2,15 +2,12 @@ import pandas as pd
 import os
 import torch
 # import cv2
-from utils.model_utils import get_speaker_model, get_classification_model
-from utils.general import get_instance, save_class_to_file, crop_images
+from utils.model_utils import get_speaker_model
+from utils.general import get_instance, save_config_to_file, crop_images
 # from losses import Loss
 from utils.general import preplot, process_imgs, auroc_aupr_scores
 import numpy as np
 from speechbrain.pretrained import EncoderClassifier
-
-
-
 
 
 class Attack:
@@ -37,7 +34,7 @@ class Attack:
         self.attack = get_instance(self.cfg['attack_config']['module_name'],
                                    self.cfg['attack_config']['class_name'])(**self.cfg['attack_params'])
         self.estimator = get_classification_model(self.cfg['estimator_config'])
-        save_class_to_file(self.cfg, self.cfg['current_dir'])
+        save_config_to_file(self.cfg, self.cfg['current_dir'])
 
         if 'transforms' in self.cfg['estimator_config']:
             from torchvision import transforms

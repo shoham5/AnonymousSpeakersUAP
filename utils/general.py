@@ -57,7 +57,7 @@ def get_instance(module_name, instance_name):
     return obj
 
 
-def save_class_to_file(config, current_folder):
+def save_config_to_file(config, current_folder):
     with open(os.path.join(current_folder, 'config.json'), 'w') as config_file:
         d = dict(vars(config))
         d_new = check_dict(d)
@@ -197,5 +197,5 @@ def calculator_snr_direct(src_array ,adv_array):
     # delta = adv_array - src_array  # checking
     power_noise = torch.sum(delta * delta).cpu().detach().numpy()
     snr = 10 * np.log10(power_sig / power_noise)
-    print("SNR direct: ",snr)
+    # print("SNR direct: ",snr)
     return snr

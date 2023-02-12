@@ -488,3 +488,36 @@ def get_uap_perturb_npy(path):
     temp = [f for f in glob.glob(f"{path}/*.npy")]
     return temp
     # yield (f for f in glob.glob(f"{path}/*.npy"))
+
+
+def get_signal_and_fs_from_wav(wav_path, perturb_size=48000):
+    signal, fs = torchaudio.load(wav_path)
+
+    if signal.shape[1] >= perturb_size:
+        return signal, fs
+
+    else:
+        cat_size = math.ceil(perturb_size / signal.shape[1])
+        cat_size = [signal for i in range(cat_size)]
+        signal = torch.cat(cat_size, 1)
+        return signal, fs
+
+
+def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device):
+    speaker_emb = torch.empty(0, device=device)
+    speaker_wavs = os.listdir(os.path.join(data_path, speaker_id))
+    wavs_for_embedding = random.sample(speaker_wavs, num_samples)
+    for speaker_wav in wavs_for_embedding:
+        signal, _ = get_signal_and_fs_from_wav(os.path.join(data_path, speaker_id, speaker_wav))
+        if signal == None:
+            print(f'SKIP anchor: {speaker_id}')
+            continue
+        signal_len = signal.shape[1]
+        start_idx = random.randint(0, signal_len - (fs * 3 + 1))
+        cropped_signal = signal[0][start_idx: (start_idx + 1) + (fs * 3)]
+        cropped_signal = cropped_signal.to(device)
+        embedding = model.encode_batch(cropped_signal)
+        embedding = embedding.detach()
+        speaker_emb = torch.cat([speaker_emb, embedding], dim=0)
+
+    return speaker_emb.mean(dim=0)

@@ -127,6 +127,7 @@ class AttackSRModelCustomLossWithSNR:
         return embeddings_batch
 
     def forward_clean(self, audio_batch, batch_size):
+        audio_batch.requires_grad_(True)
         embeddings_batch = self.classifier_class.encode_batch(audio_batch)
         return embeddings_batch
 
