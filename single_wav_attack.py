@@ -6,7 +6,7 @@ import random
 from configs.attacks_config import config_dict
 from utils.model_utils import get_speaker_model
 from utils.general import get_instance, save_config_to_file
-from utils.data_utils import get_signal_and_fs_from_wav  # , get_speaker_embedding
+from utils.data_utils import get_signal_and_fs_from_wav , get_speaker_embedding
 from utils.losses_utils import Loss
 from visualization.plots import loss_plot
 
@@ -25,13 +25,13 @@ class SingleWAVAttack:
         self.x = cropped_signal.to(self.cfg['device'])
 
         with torch.no_grad():
-            self.y = self.model.encode_batch(cropped_signal)
-        # self.speaker_emb = get_speaker_embedding(self.model,
-        #                                          self.cfg['dataset_config']['root_path'],
-        #                                          self.cfg['speaker_id'],
-        #                                          self.cfg['num_wavs_for_emb'],
-        #                                          self.cfg['fs'],
-        #                                          self.cfg['device'])
+            # self.y = self.model.encode_batch(cropped_signal)
+            self.y = get_speaker_embedding(self.model,
+                                           self.cfg['dataset_config']['root_path'],
+                                           self.cfg['speaker_id'],
+                                           self.cfg['num_wavs_for_emb'],
+                                           self.cfg['fs'],
+                                           self.cfg['device']).unsqueeze(dim=0)
 
         # Use different distance metrics
         loss_funcs = []

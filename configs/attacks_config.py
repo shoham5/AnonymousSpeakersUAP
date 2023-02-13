@@ -44,8 +44,8 @@ class BaseConfig:
         self.attack_name = 'PGD'
         self.attack_params = {
             'norm': 2,
-            'eps': 0.3,
-            'eps_step': 0.1,
+            'eps': 0.1,
+            'eps_step': 0.01,
             'decay': None,
             'max_iter': 100,
             'targeted': True,
@@ -101,6 +101,8 @@ class BaseConfig:
 class SingleWAVConfig(BaseConfig):
     def __init__(self):
         super(SingleWAVConfig, self).__init__()
+        self.speaker_id = '19'
+        self.num_wavs_for_emb = 3
         self.wav_path = 'data/LIBRI/d3/19/19-198-0009.wav'
 
 
