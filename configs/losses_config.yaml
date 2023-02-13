@@ -1,0 +1,9 @@
+MSE:
+  module_name: 'utils.losses_utils'
+  class_name: 'MSE'
+L1:
+  module_name: 'utils.losses_utils'
+  class_name: 'L1'
+CosineSimilarity:
+  module_name: 'utils.losses_utils'
+  class_name: 'CosineSimilarity'
