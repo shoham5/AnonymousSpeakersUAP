@@ -10,7 +10,7 @@ from utils.losses_utils import AS2TL2Loss,AS2TL2LossSNR
 from pathlib import Path
 from utils.data_utils import  get_uap_perturb_npy
 from configs.attacks_config import config_dict
-from utils.model_utils import get_lensless_model
+# from utils.model_utils import get_lensless_model
 from utils.general import load_npy_image_to_tensor, get_instance
 # from losses import Loss
 import matplotlib.pyplot as plt

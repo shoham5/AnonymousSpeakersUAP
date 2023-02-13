@@ -33,7 +33,7 @@ class BaseConfig:
         self._set_dataset(dataset_name)
 
         self.loss_func_params = {
-            'CosineSimilarity': {},
+            'CosineSimilarity': {'dim': 0},
         }
         self._set_losses(self.loss_func_params)
 
@@ -44,11 +44,11 @@ class BaseConfig:
         self.attack_name = 'PGD'
         self.attack_params = {
             'norm': 2,
-            'eps': 0.5,
+            'eps': 0.3,
             'eps_step': 0.1,
             'decay': None,
             'max_iter': 100,
-            'targeted': False,
+            'targeted': True,
             'num_random_init': 1,
             'clip_values': (-2 ** 15, 2 ** 15 - 1),
             'device': self.device

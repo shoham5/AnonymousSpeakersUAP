@@ -39,7 +39,7 @@ class CosineSimilarity:
         self.func = torch.nn.CosineSimilarity(**kwargs)
 
     def __call__(self, x, y):
-        return (self.func(x, y) + 1) / 2
+        return (self.func(x.squeeze(), y.squeeze()) + 1) / 2
 
 
 class Loss:
