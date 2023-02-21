@@ -72,6 +72,7 @@ def save_config_to_file(config, current_folder):
     with open(os.path.join(current_folder, 'config.json'), 'w') as config_file:
         d = dict(vars(config))
         d_new = check_dict(d)
+        d_new.pop('scheduler_factory')
         json.dump(d_new, config_file)
 
 
@@ -214,3 +215,14 @@ def calculator_snr_direct(src_array ,adv_array):
         snr += snr_curr
         # print("SNR curr direct: ",snr_curr)
     return snr/vector_numbers
+
+
+def get_pert(pert_type, size):
+    if pert_type == 'zeros':
+        adv_pert = torch.zeros((1, size))
+    elif pert_type == 'ones':
+        adv_pert = torch.ones((1, size))
+    elif pert_type == 'random':
+        adv_pert = torch.FloatTensor(1, size).uniform_(-0.01, 0.01)
+    adv_pert.requires_grad_(True)
+    return adv_pert

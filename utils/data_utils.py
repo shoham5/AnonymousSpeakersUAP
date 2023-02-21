@@ -1,31 +1,27 @@
-import pandas as pd
-import torch
-import random
-import torchaudio
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
-import numpy as np
+import fnmatch
 import glob
+import itertools
 # import cv2
 import json
-import random
+import math
 import os
 import pickle
-from tqdm import tqdm
-from sklearn.model_selection import train_test_split
-from pathlib import Path
-import yaml
-import collections
-import itertools
-import math
+import random
+import sys
 from collections import Counter
 from pathlib import Path
-from models.speechbrain_ecpa import AttackSRModel
-from torchaudio.datasets import LIBRISPEECH
 from warnings import warn
-from collections import defaultdict
-from sklearn import preprocessing
 
-import sys
+import numpy as np
+import pandas as pd
+import torch
+import torchaudio
+import yaml
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset, DataLoader
+from torchaudio.datasets import LIBRISPEECH
+from tqdm import tqdm
+
 torchaudio.set_audio_backend("sox_io")
 
 URL = "train-clean-100"
@@ -39,34 +35,87 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))
 
 
-class BasicLibriSpeechDataset(Dataset):
-    def __init__(self,data_root_dir, suffix_p='/*',labels=None , transform=None,
-                 target_transform=None):
-        # self.files_path , self.labels_df = create_labels_from_path(data_root_dir)
-        self.files_path, self.labels_df = create_labels_from_path(data_root_dir,suffix_p)
-        self.labels_dict_len = len(self.labels_df)
+def get_nested_dataset_files(img_dir, labels):
+    files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.wav'), recursive=True) for lab in labels]
+    return files_in_folder
 
-        self.data_root_dir = data_root_dir
+
+def get_split_indices(img_dir, labels, num_of_samples):
+    dataset_nested_files = get_nested_dataset_files(img_dir, labels)
+
+    nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
+    nested_indices_continuous = [nested_indices[0]]
+    for i, arr in enumerate(nested_indices[1:]):
+        nested_indices_continuous.append(arr + nested_indices_continuous[i][-1] + 1)
+    train_indices = np.array([np.random.choice(arr_idx, size=num_of_samples, replace=False) for arr_idx in
+                              nested_indices_continuous]).ravel()
+    val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices))
+
+    return train_indices, val_indices
+
+
+def get_test_loaders(config, dataset_names):
+    emb_loaders = {}
+    test_loaders = {}
+    for dataset_name in dataset_names:
+        emb_indices, test_indices = get_split_indices(config.test_img_dir[dataset_name],
+                                                      config.test_celeb_lab[dataset_name],
+                                                      config.test_num_of_images_for_emb)
+        emb_dataset = CustomDataset1(img_dir=config.test_img_dir[dataset_name],
+                                     celeb_lab_mapper=config.test_celeb_lab_mapper[dataset_name],
+                                     img_size=config.img_size,
+                                     indices=emb_indices,
+                                     transform=transforms.Compose(
+                                         [transforms.Resize(config.img_size),
+                                          transforms.ToTensor()]))
+        emb_loader = DataLoader(emb_dataset, batch_size=config.test_batch_size)
+        emb_loaders[dataset_name] = emb_loader
+        test_dataset = CustomDataset1(img_dir=config.test_img_dir[dataset_name],
+                                      celeb_lab_mapper=config.test_celeb_lab_mapper[dataset_name],
+                                      img_size=config.img_size,
+                                      indices=test_indices,
+                                      transform=transforms.Compose(
+                                          [transforms.Resize(config.img_size),
+                                           transforms.ToTensor()]))
+        test_loader = DataLoader(test_dataset, batch_size=config.test_batch_size)
+        test_loaders[dataset_name] = test_loader
+
+    return emb_loaders, test_loaders
+
+
+class BasicLibriSpeechDataset(Dataset):
+    def __init__(self, root_path, speaker_labels_mapper, indices, transform=None):
+        # self.files_path , self.labels_df = create_labels_from_path(data_root_dir)
+        self.root_path = root_path
+        self.speaker_labels_mapper = {lab: i for i, lab in speaker_labels_mapper.items()}
+        self.wav_names = self.get_wav_names(indices)
+        # self.files_path, self.labels_df = create_labels_from_path(root_path)
+        # self.labels_dict_len = len(self.labels_df)
+
         self.transform = transform
-        self.target_transform = target_transform
 
     def __len__(self):
-        return self.labels_dict_len
+        return len(self.wav_names)
 
     def __getitem__(self, idx):
         # img_path = os.path.join(self.data_root_dir, self.labels.iloc[idx, 0])
         # audio_path = os.path.join(self.data_root_dir, self.files_path[idx])
-        print("self.files_path[idx]: ",self.files_path[idx])
-        cropped_signal = get_signal_from_wav_random(self.files_path[idx])
+        # print("self.files_path[idx]: ", self.wav_names[idx])
+        wav_path = self.wav_names[idx]
+        cropped_signal = get_signal_from_wav_random(wav_path)
 
-        label = self.labels_df.iloc[idx, 0]
+        label = wav_path.split(os.path.sep)[-2]
         if self.transform:
             cropped_signal = self.transform(cropped_signal)
-        if self.target_transform:
-            label = self.target_transform(label)
-        # return cropped_signal, torch.as_tensor(label)
-        return cropped_signal, label
+        return cropped_signal, self.speaker_labels_mapper[label]
 
+    def get_wav_names(self, indices):
+        files_in_folder = get_nested_dataset_files(self.root_path, self.speaker_labels_mapper.keys())
+        files_in_folder = [item for sublist in files_in_folder for item in sublist]
+        if indices is not None:
+            files_in_folder = [files_in_folder[i] for i in indices]
+        wavs = fnmatch.filter(files_in_folder, '*.wav')
+        return wavs
 
 # https://github.com/usc-sail/gard-adversarial-speaker-id/blob/master/dev/loaders/librispeech.py
 
@@ -178,163 +227,22 @@ class LibriSpeech4Speakers(LIBRISPEECH):
                 chapter_id) + "-" + str(utt_id).zfill(4)
 
 
-class LITDataset(Dataset):
-    def __init__(self, root_path, split):
-        self.input_size = 1600
-        self.output_size = 500
-        self.split = split
-        self.num_channels = 1
-
-        self.patterns = np.load(os.path.join(root_path, f'{split}_patterns.npy'))
-        self.targets = np.load(os.path.join(root_path, f'{split}_targets.npy'))
-
-    def __len__(self):
-        return len(self.patterns)
-
-    def __getitem__(self, idx):
-        # img = cv2.resize(img, (self.input_size, self.input_size), interpolation=cv2.INTER_AREA)
-        pattern_ = np.load(self.patterns[idx])
-        # r, g, b = cv2.split(pattern_)
-        # pattern_ = np.dstack((b, g, r))
-        # target_ = cv2.imread(self.targets[idx])
-
-        c = random.randint(0, 2)
-        pattern = pattern_[:, :, c]
-        # target = target_[:, :, c]
-
-        pattern = (pattern - pattern.mean()) / pattern.std()
-        # target = cv2.resize(target, (self.output_size, self.output_size), interpolation=cv2.INTER_AREA)
-        # target = cv2.normalize(target, None, 0, 255, cv2.NORM_MINMAX)
-        # return np.reshape(pattern, (self.num_channels, self.input_size, self.input_size)), \
-        #        np.reshape(target, (self.num_channels, self.output_size, self.output_size))
-
-
-class DiffuserDataset(Dataset):
-    def __init__(self, root_path, labels_dict, load_lensed=False, random_pair=False, diff_transform=None, lensed_transform=None, cropping=False, load_reconstruct=False, **kwargs):
-        # sorted_labels_dict = collections.OrderedDict(sorted(labels_dict.items()))
-        files_idx = map(str, labels_dict.keys())
-        files_names = ['im' + sub + '.npy' for sub in files_idx]
-        self.diffuser_list = [os.path.join(root_path, 'diffuser', file) for file in files_names]
-        self.lensed_list = [os.path.join(root_path, 'original', file) for file in files_names]
-        if load_reconstruct:
-            files_idx = map(str, labels_dict.keys())
-            # files_names = ['im' + sub + '.jpg' for sub in files_idx]
-            files_names = ['im' + sub + '.npy' for sub in files_idx]
-            self.lensed_list = [os.path.join(root_path, 'reconstructions/dataset', file) for file in files_names]
-        self.labels = np.array(list(map(int, labels_dict.values())))
-        self.cropping = cropping
-
-        self.random_pairs = None
-        if random_pair:
-            self.random_pairs = []
-            indices = list(range(len(self.diffuser_list)))
-            for i in range(len(indices)):
-                prob = np.where(self.labels[i] == self.labels[indices], 0, 1)
-                self.random_pairs.append(np.random.choice(indices, p=prob/sum(prob)))
-
-        # diffuser_files = sorted(os.listdir(os.path.join(root_path, 'diffuser')), key=lambda x: int(x[2:-4]))
-        # self.diffuser_list = [os.path.join(root_path, 'diffuser', file) for file in diffuser_files if file.endswith(('.npy'))]
-        # original_files = sorted(os.listdir(os.path.join(root_path, 'original')), key=lambda x: int(x[2:-4]))
-        # self.original_list = [os.path.join(root_path, 'original', file) for file in original_files if file.endswith(('.npy'))]
-        # self.load_orig = load_orig
-
-        # self.labels = None
-        # if labels_file:
-        #     with open(os.path.join(labels_file), 'rb') as f:
-        #         self.labels = pickle.load(f)
-
-        # if class_to_load is not None:
-        #     keep = np.zeros(len(self.labels), dtype=np.bool)
-        #     for cls in class_to_load:
-        #         keep |= ((self.labels[:, cls] == 1) & (self.labels.sum(axis=1) == 1))
-        #     self.labels = self.labels[keep]
-        #     self.diffuser_list = self.diffuser_list[keep]
-        #     self.original_list = self.original_list[keep]
-
-        self.diff_transform = diff_transform
-        self.lensed_transform = lensed_transform
-        self.load_lensed = load_lensed
-        self.load_reconstruct = load_reconstruct
-
-    def __len__(self):
-        return len(self.diffuser_list)
-
-    def __getitem__(self, idx):
-        diffuser_source_img = np.load(self.diffuser_list[idx]).transpose((2, 0, 1))
-        lensed_source_img, lensed_target_img = -1, -1
-        if self.load_lensed:
-            if not self.load_reconstruct:  # replaced original image with reconstruct
-                lensed_source_img = self.load_image_from_list_in_numpy(self.lensed_list[idx])
-            else:
-                lensed_source_img = self.load_image_from_list_in_numpy(self.lensed_list[idx])
-
-        target_idx, diffuser_target_img = -1, -1
-        if self.random_pairs:
-            target_idx = self.random_pairs[idx]
-            diffuser_target_img = np.load(self.diffuser_list[target_idx]).transpose((2, 0, 1))
-
-            if self.load_lensed:
-                lensed_target_img_name = self.lensed_list[target_idx]
-                lensed_target_img = self.load_image_from_list_in_numpy(lensed_target_img_name)
-
-        if self.diff_transform:
-            diffuser_source_img = self.diff_transform(diffuser_source_img)
-            if diffuser_target_img != -1:
-                diffuser_target_img = self.diff_transform(diffuser_target_img)
-
-        if self.lensed_transform:
-            lensed_source_img = self.lensed_transform(lensed_source_img)
-            if lensed_target_img != -1:
-                lensed_target_img = self.lensed_transform(lensed_target_img)
-
-        source_label, target_label = -1, -1
-        source_label = self.labels[idx]
-        if self.random_pairs is not None:
-            target_label = self.labels[target_idx]
-
-        diffuser_source_img_name = self.diffuser_list[idx]
-        return [diffuser_source_img, lensed_source_img, source_label,
-                diffuser_target_img, lensed_target_img, target_label,
-                diffuser_source_img_name]
-
-    def load_image_from_list_in_numpy(self, img_path):
-        source_img = np.clip(np.load(img_path, allow_pickle=True), 0, 1)
-        source_img = np.flipud(source_img).copy()
-        if self.cropping:
-            source_img = source_img[60:, 62:-38, :]
-        source_img = source_img.transpose((2, 0, 1))
-        source_img = source_img[[2, 1, 0]]  # BGR to RGB
-        return source_img
-
-    def load_image_from_list_in_jpg(self, img_path):
-        # source_img = cv2.imread(img_path) / 255
-        # source_img = cv2.copyMakeBorder(source_img, 60, 0, 62, 38, cv2.BORDER_CONSTANT, value=[0, 0, 0])
-        # source_img = source_img.transpose((2, 0, 1))
-        # source_img = source_img[[2, 1, 0]]  # BGR to RGB
-        # return source_img
-        pass
-
-
 def get_dataset(dataset_name):
     if dataset_name == 'LIBRI':
         return BasicLibriSpeechDataset
-    if dataset_name == 'LIT':
-        return LITDataset
-    elif dataset_name == 'DiffuserCam':
-        return DiffuserDataset
 
 
 def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
     dataset_name = dataset_config['dataset_name']
-    print('Loading {} dataset...'.format(dataset_name))
+    train_indices, val_indices = get_split_indices(dataset_config['root_path'],
+                                                   dataset_config['speaker_labels'],
+                                                   dataset_config['num_wavs_for_emb'])
     train_loader, val_loader, test_loader = None, None, None
     dataset = get_dataset(dataset_name)
     if 'train' in splits_to_load:
-        train_set = load_pickle_file(os.path.join(dataset_config['root_path'],
-                                                  'split_balanced_annotations',
-                                                  'train.pickle'))
         train_data = dataset(root_path=dataset_config['root_path'],
-                             labels_dict=train_set,
+                             speaker_labels_mapper=dataset_config['speaker_labels_mapper'],
+                             indices=train_indices,
                              **kwargs)
         train_loader = DataLoader(train_data,
                                   batch_size=loader_params['batch_size'],
@@ -342,11 +250,9 @@ def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
                                   shuffle=True,
                                   pin_memory=True)
     if 'validation' in splits_to_load:
-        val_set = load_pickle_file(os.path.join(dataset_config['root_path'],
-                                                'split_balanced_annotations',
-                                                'validation.pickle'))
         val_data = dataset(root_path=dataset_config['root_path'],
-                           labels_dict=val_set,
+                           speaker_labels_mapper=dataset_config['speaker_labels_mapper'],
+                           indices=val_indices,
                            **kwargs)
         val_loader = DataLoader(val_data,
                                 batch_size=loader_params['batch_size'],
@@ -354,11 +260,7 @@ def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
                                 shuffle=False,
                                 pin_memory=True)
     if 'test' in splits_to_load:
-        test_set = load_pickle_file(os.path.join(dataset_config['root_path'],
-                                                 'split_balanced_annotations',
-                                                 'test.pickle'))
         test_data = dataset(root_path=dataset_config['root_path'],
-                            labels_dict=test_set,
                             **kwargs)
         test_loader = DataLoader(test_data,
                                  batch_size=loader_params['batch_size'],
@@ -366,13 +268,12 @@ def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
                                  shuffle=False,
                                  pin_memory=True)
 
-
-    train_data = ConcatDataset([train_data, val_data])
-    train_loader = DataLoader(train_data,
-                              batch_size=loader_params['batch_size'],
-                              num_workers=loader_params['num_workers'],
-                              shuffle=True,
-                              pin_memory=True)
+    # train_data = ConcatDataset([train_data, val_data])
+    # train_loader = DataLoader(train_data,
+    #                           batch_size=loader_params['batch_size'],
+    #                           num_workers=loader_params['num_workers'],
+    #                           shuffle=True,
+    #                           pin_memory=True)
     return train_loader, val_loader, test_loader
 
 
@@ -380,116 +281,6 @@ def load_pickle_file(path):
     with open(path, "rb") as f:
         pickled_file = pickle.load(f)
     return pickled_file
-
-
-MIRFLICKER_classes = [
-    'people_r1',
-    'dog_r1',
-    'car_r1',
-    'tree_r1',
-    'flower_r1'
-]
-
-
-def get_loaders_demo():
-    dataset_config = yaml.safe_load(Path('../configs/dataset_config.yaml').read_text())
-    loader_config = yaml.safe_load(Path('../configs/loader_config.yaml').read_text())
-    splits_to_load = ['train', 'validation', 'test']
-    get_loaders(loader_params=loader_config, dataset_config=dataset_config, splits_to_load=splits_to_load)
-
-
-class CreateAnnotationsFiles:
-    def __init__(self,dataset_path):
-        self.dataset_path = dataset_path
-        self.annotations_path = os.path.join(dataset_path,'annotations')
-        self.annotations = ['people_r1', 'dog_r1', 'car_r1', 'tree_r1', 'flower_r1']
-
-    def create_annotation(self):
-        idx_list = np.arange(0, 25001, 1)
-        labels_list = np.ones(25001)*-1
-        labels_dict = dict(zip(idx_list, labels_list))
-        for file in tqdm(self.annotations, desc ="Loading annotations"):
-            file_path = os.path.join(self.annotations_path, f'{file}.txt')
-            with open(file_path) as f:
-                lines = f.read().splitlines()
-                for line in lines:
-                    if labels_dict[int(line)] != -1:
-                        labels_dict[int(line)] = -1
-                        continue
-                    labels_dict[int(line)] = self.annotations.index(file)
-
-        labels_dict = self.balance_data1(labels_dict)
-        train,val,test = self.train_val_test_split(labels_dict)
-        self.dump_files((train, val, test))
-
-    def balance_data(self, labels_dict):
-        labels_dict = {key: value for (key, value) in labels_dict.items() if value != -1}
-        dict_without_people_class = {key: value for (key, value) in labels_dict.items() if value != 0}
-        dict_with_only_people_class = {key: value for (key, value) in labels_dict.items() if value == 0}
-        dict_with_sliced_people_class = dict(itertools.islice(dict_with_only_people_class.items(), 650))
-        merged_dicts = {**dict_without_people_class, **dict_with_sliced_people_class}
-        return merged_dicts
-
-    def balance_data1(self, labels_dict):
-        labels_dict = {key: value for (key, value) in labels_dict.items() if value != -1}
-        class_count = Counter(labels_dict.values())
-        max_samples = class_count.most_common()[-1][1]
-        merged_dicts = {}
-        for i in range(len(MIRFLICKER_classes)):
-        # dict_without_people_class = {key: value for (key, value) in labels_dict.items() if value != 0}
-            dict_with_only_specific_class = {key: value for (key, value) in labels_dict.items() if value == i}
-            dict_with_only_specific_class = list(dict_with_only_specific_class.items())
-            random.shuffle(dict_with_only_specific_class)
-            dict_with_only_specific_class = dict(dict_with_only_specific_class)
-            dict_with_sliced_specific_class = dict(itertools.islice(dict_with_only_specific_class.items(), max_samples))
-            merged_dicts = {**merged_dicts, **dict_with_sliced_specific_class}
-        return merged_dicts
-
-    def train_val_test_split(self, labels_dict):
-        X_train, X_test, y_train, y_test = train_test_split(list(labels_dict.keys()), list(labels_dict.values()), test_size = 0.2, random_state = 42)
-        X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size = 0.2, random_state = 42)
-        return dict(zip(X_train, y_train)), dict(zip(X_val, y_val)),dict(zip(X_test, y_test))
-
-    def dump_files(self,datasets):
-        names = ['train', 'validation', 'test']
-        for dataset,name in zip(datasets,names):
-            with open(f'{name}.pickle', 'wb') as file:
-                pickle.dump(dataset, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def create_annotations_file_demo():
-    dt = CreateAnnotationsFiles("/dt/shabtaia/dt-fujitsu/Lensless_imaging/Datasets/DiffuserCam")
-    dt.create_annotation()
-# create_annotations_file_demo()
-
-
-def explore_images():
-    dataset_path = "/dt/shabtaia/dt-fujitsu/Lensless_imaging/Datasets/DiffuserCam/original"
-    for i in range(20):
-        img_path = os.path.join(dataset_path,f"im{i}.npy")
-        original_source_img = np.load(img_path)*255
-        original_source_img = np.rot90(np.rot90(original_source_img))
-        original_source_img = original_source_img[60:, 62:-60, :]
-        # cv2.imwrite(f"/dt/shabtaia/dt-fujitsu/Lensless_imaging/Datasets/test_check/check_{i}.jpg", original_source_img)
-
-
-def create_dataset_labels(labels_path, output_path, dataset_size):
-    files = os.listdir(labels_path)
-    labels = np.zeros((dataset_size, len(files)))
-    labels_map = {}
-    for cls_num, file in enumerate(files):
-        labels_map[cls_num] = file.split('_')[0]
-        with open(os.path.join(labels_path, file), 'r') as f:
-            for line in f.readlines():
-                labels[int(line.strip())-1, cls_num] = 1
-
-    with open(os.path.join(output_path, 'labels_mat.pkl'), 'wb') as f_out:  # Pickling
-        pickle.dump(labels, f_out)
-    with open(os.path.join(output_path, 'labels_dict.txt'), 'w') as f_out:  # Pickling
-        f_out.write(str(labels_map))
-
-
-
 
 
 def get_anc_wav(all_rec_path):
@@ -755,10 +546,10 @@ def get_signal_and_fs_from_wav(wav_path, perturb_size=48000):
 
 
 def get_signal_from_wav_random(wav_path, perturb_size=48000):
-    signal, _ = get_signal_and_fs_from_wav(wav_path, perturb_size=48000)
+    signal, _ = get_signal_and_fs_from_wav(wav_path, perturb_size=perturb_size)
     signal_len = signal.shape[1]
     start_idx = np.random.randint(0, signal_len - (perturb_size + 1))
-    print(start_idx)
+    # print(start_idx)
     cropped_signal = signal[0][start_idx: start_idx + perturb_size]
     return cropped_signal
 
@@ -796,13 +587,8 @@ def get_embeddings(model, loader, person_ids, device):
             emb = embedding[relevant_indices]
             embeddings[idx.item()] = torch.cat([embeddings[idx.item()], emb], dim=0)
     final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in embeddings.values()]
-    final_embeddings = torch.stack(final_embeddings)
+    final_embeddings = torch.cat(final_embeddings, dim=0)
     return final_embeddings
-
-
-def get_loaders(cfg):
-    pass
-
 
 
 if __name__ == '__main__':

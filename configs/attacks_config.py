@@ -32,10 +32,18 @@ class BaseConfig:
         dataset_name = 'LIBRI'
         self._set_dataset(dataset_name)
 
-        # TODO: split to two classes. one for eval, other for attack. delete similarity from BaseConfig
-        self.similarity_params = {'dim': 2}
-        similarity_func_name = 'CosineSimilarity'
-        self._set_similarity_one_func(similarity_func_name)
+        # # TODO: split to two classes. one for eval, other for attack. delete similarity from BaseConfig
+        # self.similarity_params = {'dim': 2}
+        # similarity_func_name = 'CosineSimilarity'
+        # self._set_similarity_one_func(similarity_func_name)
+        self.loss_func_params = {
+            'CosineSimilarity': {'dim': 0},
+        }
+        self._set_losses(self.loss_func_params)
+
+        self.loss_params = {
+            'weights': [1]
+        }
 
         self.loss_func_params = {
             'CosineSimilarity': {'dim': 0},
@@ -55,12 +63,12 @@ class BaseConfig:
             'max_iter': 50,
             'targeted': True,
             'num_random_init': 1,
-            'clip_values': (-1,1),#(-2 ** 15, 2 ** 15 - 1),
+            'clip_values': (-1, 1),#(-2 ** 15, 2 ** 15 - 1),
             'device': self.device
         }
 
         self.loader_params = {
-            'batch_size': 8,
+            'batch_size': 4,
             'num_workers': 4
         }
 
@@ -244,7 +252,8 @@ class MultiSpeakersConfig(BaseConfig):
 class UniversalAttackConfig(BaseConfig):
     def __init__(self):
         super(UniversalAttackConfig, self).__init__()
-        self.start_learning_rate = 1e-2
+        self.init_pert_type = 'zeros'
+        self.start_learning_rate = 5e-3
         self.es_patience = 7
         self.sc_patience = 2
         self.sc_min_lr = 1e-6
@@ -253,10 +262,17 @@ class UniversalAttackConfig(BaseConfig):
                                                                                               patience=self.sc_patience,
                                                                                               min_lr=self.sc_min_lr,
                                                                                               mode='min')
+        number_of_speakers = 3
+        speaker_labels = os.listdir(self.dataset_config['root_path'])[:number_of_speakers]
+        speaker_labels_mapper = {i: lab for i, lab in enumerate(speaker_labels)}
+        num_wavs_for_emb = 5
+        self.dataset_config.update({
+            'number_of_speakers': number_of_speakers,
+            'speaker_labels': speaker_labels,
+            'speaker_labels_mapper': speaker_labels_mapper,
+            'num_wavs_for_emb': num_wavs_for_emb,
+        })
 
-        self.number_of_speakers = 3
-        self.speaker_labels = os.listdir(self.dataset_config['root_path'])[:self.number_of_speakers]
-        self.num_wavs_for_emb = 5
         self.data_path = 'data/LIBRI/d3'
         self.eval_path = 'data/LIBRI/d3t'
         self.speakers_id = create_speakers_list('data/LIBRI/d3')
@@ -273,6 +289,7 @@ config_dict = {
     'SingleSpeaker': SingleSpeakerConfig,
     "MultiSpeakers": MultiSpeakersConfig,
     'UniversalAttack': UniversalAttackConfig,
+    'Universal': UniversalAttackConfig,
     'UniversalEval':SingleWAVEvalConfig,
     'SingleWavEval': SingleWAVEvalConfig
 }
