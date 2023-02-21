@@ -1,0 +1,3 @@
+CosineSimilarity:
+  module_name: 'utils.similarities_utils'
+  class_name: 'CosineSimilaritySims'
