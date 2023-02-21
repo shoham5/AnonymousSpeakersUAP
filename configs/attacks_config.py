@@ -59,6 +59,8 @@ class BaseConfig:
             'num_workers': 4
         }
 
+        self.num_wavs_for_emb = 3
+        self.num_of_seconds = 3
         self.fs = 16000
         with open(ROOT / 'configs/attack_config.yaml', 'r') as stream:
             self.attack_config = yaml.safe_load(stream)[self.attack_name]
@@ -102,7 +104,6 @@ class SingleWAVConfig(BaseConfig):
     def __init__(self):
         super(SingleWAVConfig, self).__init__()
         self.speaker_id = '19'
-        self.num_wavs_for_emb = 3
         self.wav_path = 'data/LIBRI/d3/19/19-198-0009.wav'
 
 
@@ -116,6 +117,19 @@ class SingleSpeakerConfig(BaseConfig):
 class UniversalAttackConfig(BaseConfig):
     def __init__(self):
         super(UniversalAttackConfig, self).__init__()
+        self.start_learning_rate = 1e-2
+        self.es_patience = 7
+        self.sc_patience = 2
+        self.sc_min_lr = 1e-6
+        self.epochs = 10
+        self.scheduler_factory = lambda optimizer: torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
+                                                                                              patience=self.sc_patience,
+                                                                                              min_lr=self.sc_min_lr,
+                                                                                              mode='min')
+
+        self.number_of_speakers = 3
+        self.speaker_labels = os.listdir(self.dataset_config['root_path'])[:self.number_of_speakers]
+        self.num_wavs_for_emb = 5
 
 
 config_dict = {

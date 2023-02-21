@@ -503,6 +503,7 @@ def get_signal_and_fs_from_wav(wav_path, perturb_size=48000):
         return signal, fs
 
 
+@torch.no_grad()
 def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device):
     speaker_emb = torch.empty(0, device=device)
     speaker_wavs = os.listdir(os.path.join(data_path, speaker_id))
@@ -521,3 +522,21 @@ def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device)
         speaker_emb = torch.cat([speaker_emb, embedding], dim=0)
 
     return speaker_emb.mean(dim=0)
+
+
+@torch.no_grad()
+def get_embeddings(model, loader, person_ids, device):
+    embeddings = {id: torch.empty(0, device=device) for id in person_ids}
+    for cropped_signal_batch, person_ids_batch in tqdm(loader):
+        embedding = model.encode_batch(cropped_signal_batch).detach()
+        for idx in person_ids_batch.unique():
+            relevant_indices = torch.nonzero(person_ids_batch == idx, as_tuple=True)
+            emb = embedding[relevant_indices]
+            embeddings[idx.item()] = torch.cat([embeddings[idx.item()], emb], dim=0)
+    final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in embeddings.values()]
+    final_embeddings = torch.stack(final_embeddings)
+    return final_embeddings
+
+
+def get_loaders(cfg):
+    pass
