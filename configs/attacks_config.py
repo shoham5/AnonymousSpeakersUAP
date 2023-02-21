@@ -49,10 +49,10 @@ class BaseConfig:
         self.attack_name = 'PGD'
         self.attack_params = {
             'norm': 2,
-            'eps': 0.1,
-            'eps_step': 0.01,
+            'eps': 0.3,
+            'eps_step': 0.1,
             'decay': None,
-            'max_iter': 18,
+            'max_iter': 50,
             'targeted': True,
             'num_random_init': 1,
             'clip_values': (-1,1),#(-2 ** 15, 2 ** 15 - 1),
