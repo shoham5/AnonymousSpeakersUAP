@@ -1,3 +1,4 @@
+import pandas as pd
 import torch
 import random
 import torchaudio
@@ -5,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import numpy as np
 import glob
 # import cv2
+import json
 import random
 import os
 import pickle
@@ -18,6 +20,163 @@ import math
 from collections import Counter
 from pathlib import Path
 from models.speechbrain_ecpa import AttackSRModel
+from torchaudio.datasets import LIBRISPEECH
+from warnings import warn
+from collections import defaultdict
+from sklearn import preprocessing
+
+import sys
+torchaudio.set_audio_backend("sox_io")
+
+URL = "train-clean-100"
+FOLDER_IN_ARCHIVE = "LibriSpeech"
+
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))
+
+
+class BasicLibriSpeechDataset(Dataset):
+    def __init__(self,data_root_dir, suffix_p='/*',labels=None , transform=None,
+                 target_transform=None):
+        # self.files_path , self.labels_df = create_labels_from_path(data_root_dir)
+        self.files_path, self.labels_df = create_labels_from_path(data_root_dir,suffix_p)
+        self.labels_dict_len = len(self.labels_df)
+
+        self.data_root_dir = data_root_dir
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __len__(self):
+        return self.labels_dict_len
+
+    def __getitem__(self, idx):
+        # img_path = os.path.join(self.data_root_dir, self.labels.iloc[idx, 0])
+        # audio_path = os.path.join(self.data_root_dir, self.files_path[idx])
+        print("self.files_path[idx]: ",self.files_path[idx])
+        cropped_signal = get_signal_from_wav_random(self.files_path[idx])
+
+        label = self.labels_df.iloc[idx, 0]
+        if self.transform:
+            cropped_signal = self.transform(cropped_signal)
+        if self.target_transform:
+            label = self.target_transform(label)
+        # return cropped_signal, torch.as_tensor(label)
+        return cropped_signal, label
+
+
+# https://github.com/usc-sail/gard-adversarial-speaker-id/blob/master/dev/loaders/librispeech.py
+
+class LibriSpeech4Speakers(LIBRISPEECH):
+    def __init__(
+            self, root, project_fs, subset, wav_length=None, url=URL,
+            folder_in_archive=FOLDER_IN_ARCHIVE, download=False,
+            train_speaker_ratio=1, train_utterance_ratio=0.8,
+            return_file_name=False
+    ):
+        super().__init__(root, url=url, folder_in_archive=folder_in_archive, download=download)
+        self._split(subset, train_speaker_ratio, train_utterance_ratio)
+        self.project_fs = project_fs
+        self.wav_length = wav_length
+        self.return_file_name = return_file_name
+
+    def _split(self, subset, train_speaker_ratio, train_utterance_ratio):
+        """ Splits into training and testing sets """
+
+        def _parse(name_string):
+            speaker_id, chapter_id, utterance_id = name_string.split("-")
+            return speaker_id, chapter_id, utterance_id
+
+        n_total_utterance = len(self._walker)
+
+        self._walker.sort()
+
+        utt_per_speaker = {}
+        for filename in self._walker:
+            speaker_id, chapter_id, utterance_id = _parse(filename)
+            if utt_per_speaker.get(speaker_id, None) is None:
+                utt_per_speaker[speaker_id] = [utterance_id]
+            else:
+                utt_per_speaker[speaker_id].append(utterance_id)
+
+        speakers = list(utt_per_speaker.keys())
+        speakers.sort()
+        num_train_speaker = int(len(speakers) * train_speaker_ratio)
+        speakers = {
+            "train": speakers[:num_train_speaker],
+            "test": speakers[num_train_speaker:]
+        }
+        self.speakers = {
+            "train": [int(s) for s in speakers["train"]],
+            "test": [int(s) for s in speakers["test"]],
+        }
+
+        for spk in speakers["train"]:
+            utt_per_speaker[spk].sort()
+            num_train_utterance = int(len(utt_per_speaker[spk]) * train_utterance_ratio)
+            utt_per_speaker[spk] = {
+                "train": utt_per_speaker[spk][:num_train_utterance],
+                "test": utt_per_speaker[spk][num_train_utterance:],
+            }
+
+        trn_walker = []
+        test_walker = []
+        outsiders = []
+        for filename in self._walker:
+            speaker_id, chapter_id, utterance_id = _parse(filename)
+            if speaker_id in speakers["train"]:
+                if utterance_id in utt_per_speaker[speaker_id]["train"]:
+                    trn_walker.append(filename)
+                else:
+                    test_walker.append(filename)
+            else:
+                outsiders.append(outsiders)
+
+        if subset == "train":
+            self._walker = trn_walker
+        elif subset == "test":
+            self._walker = test_walker
+        else:
+            self._walker = outsiders
+
+        order = "first" if subset == "training" else "last"
+        warn(
+            f"Deterministic split: {len(self._walker)} out of the {order}"
+            f" {n_total_utterance} utterances are taken as {subset} set.",
+            UserWarning
+        )
+
+    def __getitem__(self, n):
+        if not self.return_file_name:
+            waveform, sample_rate, _, speaker_id, _, _ = super().__getitem__(n)
+        else:
+            waveform, sample_rate, _, speaker_id, chapter_id, utt_id = super().__getitem__(n)
+
+        n_channel, duration = waveform.shape
+        if self.wav_length is None:
+            pass
+        elif duration > self.wav_length:
+            i = torch.randint(0, duration - self.wav_length, []).long()
+            waveform = waveform[:, i: i + self.wav_length]
+        else:
+            waveform = torch.cat(
+                [
+                    waveform,
+                    torch.zeros(n_channel, self.wav_length - duration)
+                ],
+                1
+            )
+
+        # waveform = librosa.core.resample(waveform, sample_rate, self.project_fs)
+        if not self.return_file_name:
+            return waveform, self.speakers["train"].index(speaker_id)
+        else:
+            return waveform, self.speakers["train"].index(speaker_id), str(speaker_id) + "-" + str(
+                chapter_id) + "-" + str(utt_id).zfill(4)
+
 
 class LITDataset(Dataset):
     def __init__(self, root_path, split):
@@ -157,6 +316,8 @@ class DiffuserDataset(Dataset):
 
 
 def get_dataset(dataset_name):
+    if dataset_name == 'LIBRI':
+        return BasicLibriSpeechDataset
     if dataset_name == 'LIT':
         return LITDataset
     elif dataset_name == 'DiffuserCam':
@@ -394,27 +555,117 @@ def prepare_wav_from_json(all_speaker_paths, perturb_size=48000, sample_size=1):
     return cropped_signal, anc_path, start_idx
 
 
+def create_dirs_not_exist(current_path, directories_list):
+    for dir_name in directories_list:
+        dir_path = os.path.join(current_path,dir_name)
+        if not os.path.isdir(dir_path):
+            os.mkdir(dir_path)
 
-import json
+
+def load_drom_pickle(root_path,audio_type,file_name):
+    file_path = os.path.join(root_path, audio_type, Path(file_name).stem)
+    with open(f'{file_path}.pickle', 'rb') as f:
+        return pickle.load(f)
+
+
+def save_to_pickle(root_path, pickle_data, audio_type, file_name):
+    file_path = os.path.join(root_path, audio_type, Path(file_name).stem)
+    with open(f'{file_path}.pickle', 'wb') as f:
+        pickle.dump(pickle_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def load_audio_from_wav(root_path,audio_type,file_name, sample_rate=16000):
+    file_path = os.path.join(root_path, audio_type, Path(file_name).name)
+    signal , _ =  torchaudio.load(file_path, sample_rate)
+    return signal
+
+
+def save_audio_as_wav(root_path, waveform, audio_type,file_name, sample_rate=16000):
+    file_path = os.path.join(root_path, audio_type, Path(file_name).name)
+
+    # downsample_rate = 16000
+    # downsample_resample = torchaudio.transforms.Resample(
+    #     sample_rate, downsample_rate, resampling_method='sinc_interpolation')
+    # down_sampled = downsample_resample(waveform)
+    # # print(down_sampled)
+
+    # torchaudio.save(
+    #     file_path, torch.clamp(down_sampled, -1, 1), downsample_rate, precision=32)
+
+    torchaudio.save(file_path, waveform, sample_rate,encoding="PCM_F", bits_per_sample=32)
+
+
 def read_json(file_path):
-  with open(file_path, 'r') as f:
-    data = json.load(f)
-  return data
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+    return data
+
 
 def write_json(file_name, data):
-  with open(f'{file_name}.json', 'w') as f:
-      json.dump(data, f)
+    with open(f'{file_name}.json', 'w') as f:
+        json.dump(data, f)
+
 
 def read_pickle(file_name):
-  with open(f'{file_name}.pickle', 'rb') as f:
-      return pickle.load(f)
+    with open(f'{file_name}.pickle', 'rb') as f:
+        return pickle.load(f)
+
 
 def write_pickle(file_name, data):
-  with open(f'{file_name}.pickle', 'wb') as f:
-      pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(f'{file_name}.pickle', 'wb') as f:
+        pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+# def load_emb_from_npy(root_path, np_data, audio_type, file_name):
+#     file_path = os.path.join(root_path, audio_type, Path(file_name).stem)
+#     np.save(f'{file_path}.npy', np_data)
+
+
+def save_emb_as_npy(root_path, np_data, audio_type, file_name):
+    file_path = os.path.join(root_path, audio_type, Path(file_name).stem)
+    np.save(f'{file_path}.npy', np_data)
+
+
+def load_from_npy(root_path, audio_type, file_name):
+    file_path = os.path.join(root_path, audio_type, Path(file_name).stem)
+    return np.load(f'{file_path}.npy')
+
+
+def get_pretrained_speaker_embedding(root_path, audio_type, speaker_id): # model
+    speaker_emb = glob.glob(f'{root_path}/{audio_type}/{speaker_id}-*')[0]
+    return np.load(f'{speaker_emb}')
+
 
 def write_npy(file_name, data):
     np.save(f'{file_name}.npy',data)
+
+
+def create_labels_from_path(dir_path, suffix_p):
+
+    all_spk_paths = glob.glob(f"{ROOT}/{dir_path}{suffix_p}.wav") # in case of parent dir use /*/*.wav instead
+    labels = [int(os.path.basename(p).split('-')[0]) for p in all_spk_paths]
+
+    # TODO WHAT'S BETTER? USING INT? or LABELENCODER?
+    # labels_as_int = map(int,labels)
+    # label_encoder = preprocessing.LabelEncoder()
+    # label_encoder.fit_transform(labels)
+
+    labels_df = pd.DataFrame(labels)
+
+    # labels_dict = {k: v for v, k in enumerate(labels)}
+    return all_spk_paths, labels_df
+
+
+def create_speakers_list(root_data_path):
+    # temp=os.walk(root_data_path)
+    return os.listdir(root_data_path)
+    # list_temp=[x[0] for x in os.walk(root_data_path)]
+    # print("end create speakers")
+    # all_spk_paths = glob.glob(f"{ROOT}/{dir_path}/*.wav")  # in case of parent dir use /*/*.wav instead
+    # labels = [int(os.path.basename(p).split('-')[0]) for p in all_spk_paths]
+
+
+def load_labels():
+    data = np.load('./data/TIMIT/speaker/processed/TIMIT_labels.npy', allow_pickle=True)
 
 def read_npy(file_name):
     return np.load(f'{file_name}.npy')
@@ -503,6 +754,16 @@ def get_signal_and_fs_from_wav(wav_path, perturb_size=48000):
         return signal, fs
 
 
+def get_signal_from_wav_random(wav_path, perturb_size=48000):
+    signal, _ = get_signal_and_fs_from_wav(wav_path, perturb_size=48000)
+    signal_len = signal.shape[1]
+    start_idx = np.random.randint(0, signal_len - (perturb_size + 1))
+    print(start_idx)
+    cropped_signal = signal[0][start_idx: start_idx + perturb_size]
+    return cropped_signal
+
+
+
 @torch.no_grad()
 def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device):
     speaker_emb = torch.empty(0, device=device)
@@ -510,12 +771,13 @@ def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device)
     wavs_for_embedding = random.sample(speaker_wavs, num_samples)
     for speaker_wav in wavs_for_embedding:
         signal, _ = get_signal_and_fs_from_wav(os.path.join(data_path, speaker_id, speaker_wav))
+        print("utter_emb: ",  speaker_wav)
         if signal == None:
             print(f'SKIP anchor: {speaker_id}')
             continue
         signal_len = signal.shape[1]
         start_idx = random.randint(0, signal_len - (fs * 3 + 1))
-        cropped_signal = signal[0][start_idx: (start_idx + 1) + (fs * 3)]
+        cropped_signal = signal[0][start_idx: start_idx + (fs * 3)]
         cropped_signal = cropped_signal.to(device)
         embedding = model.encode_batch(cropped_signal)
         embedding = embedding.detach()
@@ -540,3 +802,14 @@ def get_embeddings(model, loader, person_ids, device):
 
 def get_loaders(cfg):
     pass
+
+
+
+if __name__ == '__main__':
+    training_path = 'data/LIBRI/d1'
+    basic_libri_dataset = BasicLibriSpeechDataset(training_path)
+    train_dataloader = DataLoader(basic_libri_dataset, batch_size=4, shuffle=True)
+    train_features, train_labels = next(iter(train_dataloader))
+    print(f"Feature batch shape: {train_features.size()}")
+    print(f"Labels batch shape: {train_labels.size()}")
+

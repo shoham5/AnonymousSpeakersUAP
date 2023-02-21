@@ -11,13 +11,14 @@ import torchaudio
 # from sklearn import metrics
 import matplotlib as plt
 import seaborn as sns
+import scipy.io.wavfile as wav
 
 def init_seeds(seed=0):
     # Initialize random number generator (RNG) seeds https://pytorch.org/docs/stable/notes/randomness.html
     # cudnn seed 0 settings are slower and more reproducible, else faster and less reproducible
     import torch.backends.cudnn as cudnn
     random.seed(seed)
-    np.random.seed(seed)
+    # np.random.seed(0) # change by shoham
     torch.manual_seed(seed)
     cudnn.benchmark, cudnn.deterministic = (False, True) if seed == 0 else (True, False)
 
@@ -55,6 +56,16 @@ def get_instance(module_name, instance_name):
     module = importlib.import_module(module_name)
     obj = getattr(module, instance_name)
     return obj
+
+
+def save_file_to_npy(current_folder, file_name, data):
+    signal_path = os.path.join(current_folder, file_name)
+    np.save(f'{signal_path}.npy',data)
+
+
+def save_signal_to_wav(current_folder, file_name, np_signal):
+    signal_path = os.path.join(current_folder, file_name)
+    wav.write(f'./{signal_path}.wav', 16000, np_signal)
 
 
 def save_config_to_file(config, current_folder):
@@ -192,10 +203,14 @@ def calculator_snr_direct(src_array ,adv_array):
     # delta_uap, fs = torchaudio.load(delta_uap_p)#wavfile.read(os.path.join(audios_path, audio_path))
     # print("adv_array: ",adv_array)
     # src = adv_array-src_array
-    power_sig = torch.sum(src_array * src_array).cpu().detach().numpy()
-    delta = src_array - adv_array # checking
-    # delta = adv_array - src_array  # checking
-    power_noise = torch.sum(delta * delta).cpu().detach().numpy()
-    snr = 10 * np.log10(power_sig / power_noise)
-    # print("SNR direct: ",snr)
-    return snr
+    snr = 0
+    vector_numbers = src_array.shape[0]
+    for i in range(vector_numbers):
+        power_sig = torch.sum(src_array[i] * src_array[i]).cpu().detach().numpy()
+        delta = src_array[i] - adv_array[i] # checking
+        # delta = adv_array - src_array  # checking
+        power_noise = torch.sum(delta * delta).cpu().detach().numpy()
+        snr_curr = 10 * np.log10(power_sig / power_noise)
+        snr += snr_curr
+        # print("SNR curr direct: ",snr_curr)
+    return snr/vector_numbers
