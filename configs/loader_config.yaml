@@ -4,3 +4,6 @@ LIBRI:
 LIBRI1:
   dataset_name: 'LIBRI'
   root_path: 'data/LIBRI/d1'
+LIBRIALL:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_train-clean-100/'

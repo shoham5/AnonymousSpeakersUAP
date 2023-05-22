@@ -1,13 +1,73 @@
 from speechbrain.pretrained import EncoderClassifier
+from models.wavlm_base import WavLm
+from pathlib import Path
+import os
+import sys
+
+
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))
+
+
+def load_embedder(embedder_names, embedder_config, device):
+    embedders = {}
+    for embedder_name in embedder_names:
+        curr_model = get_speaker_model_by_name(embedder_name,embedder_config[embedder_name], device)
+        embedders[embedder_name] = curr_model
+    return embedders
+
+
+def get_speaker_model_by_name(embedder_name, cfg, device):
+    if embedder_name == 'spkrec-ecapa-voxceleb': # 'SpeechBrain' :
+        model = EncoderClassifier.from_hparams(cfg['files_path'])
+        model.device = device
+    elif embedder_name == 'spkrec-xvect-voxceleb':
+        model = EncoderClassifier.from_hparams(cfg['files_path'])
+        model.device = device
+    elif embedder_name == 'wavlm':
+        wavlm = WavLm()
+        model = wavlm.get_model()
+        model.device = device
+    else:
+        raise Exception('Model type {} not found'.format(embedder_name))
+
+    model.eval()
+    model.to(device)
+    return model
+
+
+# def _set_model(self, model_name):
+#     with open(ROOT / 'configs/model_config.yaml', 'r') as stream:
+#         curr_model_class = yaml.safe_load(stream)[model_name]
+#         self.test_embedder_classes.append(curr_model_class)
 
 
 def get_speaker_model(cfg):
-    if cfg['model_source'] == 'SpeechBrain':
+
+    if cfg['model_name'] == 'spkrec-ecapa-voxceleb':
+    #if cfg['model_source'] == 'SpeechBrain':
         model = EncoderClassifier.from_hparams(cfg['model_config']['files_path'])
         model.device = cfg['device']
+        model.eval()
+        model.to(cfg['device'])
+
+    elif cfg['model_name'] == 'spkrec-xvect-voxceleb':
+        model = EncoderClassifier.from_hparams(cfg['model_config']['files_path'])
+        model.device = cfg['device']
+        model.eval()
+        model.to(cfg['device'])
+
+    elif cfg['model_name'] == 'wavlm':
+        model = WavLm(cfg['device'])
+        # model = wavlm.get_model()
+        # model.device = cfg['device']
     else:
         raise Exception('Model type {} not found'.format(cfg['model_type']))
 
-    model.eval()
-    model.to(cfg['device'])
+
+    print("model name in get speaker model is : ", cfg['model_name'])
     return model

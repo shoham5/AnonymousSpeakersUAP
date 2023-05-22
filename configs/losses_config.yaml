@@ -7,3 +7,6 @@ L1:
 CosineSimilarity:
   module_name: 'utils.losses_utils'
   class_name: 'CosineSimilarity'
+SNRLoss:
+  module_name: 'utils.losses_utils'
+  class_name: 'SNRLoss'

@@ -8,6 +8,7 @@ import time
 from utils.data_utils import create_speakers_list
 from utils.general import init_seeds
 
+
 # init seed cuda
 init_seeds()
 
@@ -26,10 +27,14 @@ class BaseConfig:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model_source = 'SpeechBrain'  # see configs/model_config.yaml for other options
-        model_name = 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
+        model_name = "wavlm" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
+
+        # 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
+
+        print("model_name: ",model_name)
         self._set_model(model_source, model_name)
 
-        dataset_name = 'LIBRI'
+        dataset_name = 'LIBRI-CLOSE-SET-TRAIN' # 'LIBRIALL'
         self._set_dataset(dataset_name)
 
         # # TODO: split to two classes. one for eval, other for attack. delete similarity from BaseConfig
@@ -57,10 +62,10 @@ class BaseConfig:
         self.attack_name = 'PGD'
         self.attack_params = {
             'norm': 2,
-            'eps': 0.3,
-            'eps_step': 0.1,
+            'eps': 0.5,
+            'eps_step': 0.3,
             'decay': None,
-            'max_iter': 50,
+            'max_iter': 18,
             'targeted': True,
             'num_random_init': 1,
             'clip_values': (-1, 1),#(-2 ** 15, 2 ** 15 - 1),
@@ -68,11 +73,11 @@ class BaseConfig:
         }
 
         self.loader_params = {
-            'batch_size': 4,
+            'batch_size': 64,
             'num_workers': 4
         }
 
-        self.num_wavs_for_emb = 3
+        self.num_wavs_for_emb = 5
         self.num_of_seconds = 3
         self.fs = 16000
         with open(ROOT / 'configs/attack_config.yaml', 'r') as stream:
@@ -129,7 +134,7 @@ class BaseEvalConfig:
         model_name = 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
         self._set_model(model_source, model_name)
 
-        dataset_name = 'LIBRI'
+        dataset_name = 'LIBRIALL'#'LIBRI'
         self._set_dataset(dataset_name)
 
         self.similarity_params = {'dim': 2}
@@ -143,7 +148,7 @@ class BaseEvalConfig:
         self._set_similarity(self.similarity_func_params)
 
         self.loader_params = {
-            'batch_size': 8,
+            'batch_size': 4,
             'num_workers': 4
         }
 
@@ -252,17 +257,17 @@ class MultiSpeakersConfig(BaseConfig):
 class UniversalAttackConfig(BaseConfig):
     def __init__(self):
         super(UniversalAttackConfig, self).__init__()
-        self.init_pert_type = 'zeros'
-        self.start_learning_rate = 5e-3
+        self.init_pert_type = "random" ##  'zeros' #, "random" "prev"
+        self.start_learning_rate = 10 #5e-3 #5e-4#5e-4 # 5e-1 #5e-2 #5e-3
         self.es_patience = 7
         self.sc_patience = 2
-        self.sc_min_lr = 1e-6
-        self.epochs = 10
+        self.sc_min_lr = 1e-8 # 1e-8
+        self.epochs = 100 # 50 #36 # 20 for eps 0.1
         self.scheduler_factory = lambda optimizer: torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
                                                                                               patience=self.sc_patience,
                                                                                               min_lr=self.sc_min_lr,
                                                                                               mode='min')
-        number_of_speakers = 3
+        number_of_speakers = 100
         speaker_labels = os.listdir(self.dataset_config['root_path'])[:number_of_speakers]
         speaker_labels_mapper = {i: lab for i, lab in enumerate(speaker_labels)}
         num_wavs_for_emb = 5
@@ -273,10 +278,11 @@ class UniversalAttackConfig(BaseConfig):
             'num_wavs_for_emb': num_wavs_for_emb,
         })
 
-        self.data_path = 'data/LIBRI/d3'
-        self.eval_path = 'data/LIBRI/d3t'
-        self.speakers_id = create_speakers_list('data/LIBRI/d3')
-        self.speakers_number = len(self.speakers_id)
+        self.data_path = 'data/libri_train-clean-100/'
+        self.test_path = 'data/libri_test/'
+        self.is_test = False
+        # self.speakers_id = create_speakers_list('data/LIBRI/d3')
+        # self.speakers_number = len(self.speakers_id)
         self.wav_path = 'data/LIBRI/d3t/19t/19-198-0036.wav'
         self.wav_path2 = 'data/LIBRI/d3t/2843t/2843-152918-0026.wav'
         self.wav_path3 = 'data/LIBRI/d3t/8747t/8747-293952-0094.wav'

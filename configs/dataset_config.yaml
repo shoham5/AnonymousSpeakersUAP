@@ -4,3 +4,16 @@ LIBRI:
 LIBRI1:
   dataset_name: 'LIBRI'
   root_path: 'data/LIBRI/d1'
+LIBRIALL:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_train-clean-100/'
+LIBRI-TEST:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri-test-clean/'
+LIBRI-CLOSE-SET-TRAIN:
+  dataset_name: 'LIBRI'
+  root_path: 'data/train_test-librispeech_train-100/train/'
+LIBRI-CLOSE-SET-TEST:
+  dataset_name: 'LIBRI'
+  root_path: 'data/train_test-librispeech_train-100/test/'
+

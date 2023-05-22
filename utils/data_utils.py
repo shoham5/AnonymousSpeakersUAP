@@ -11,7 +11,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 from warnings import warn
-
+from visualization.plots import plot_waveform
+from utils.general import calculator_snr_direct
+import matplotlib.pyplot as plt
+import datetime
 import numpy as np
 import pandas as pd
 import torch
@@ -23,6 +26,8 @@ from torchaudio.datasets import LIBRISPEECH
 from tqdm import tqdm
 
 torchaudio.set_audio_backend("sox_io")
+global device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 URL = "train-clean-100"
 FOLDER_IN_ARCHIVE = "LibriSpeech"
@@ -34,53 +39,9 @@ if str(ROOT) not in sys.path:
 
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))
 
+# TODO: send from config
+TRAIN_SPLIT = 0.8
 
-def get_nested_dataset_files(img_dir, labels):
-    files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.wav'), recursive=True) for lab in labels]
-    return files_in_folder
-
-
-def get_split_indices(img_dir, labels, num_of_samples):
-    dataset_nested_files = get_nested_dataset_files(img_dir, labels)
-
-    nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
-    nested_indices_continuous = [nested_indices[0]]
-    for i, arr in enumerate(nested_indices[1:]):
-        nested_indices_continuous.append(arr + nested_indices_continuous[i][-1] + 1)
-    train_indices = np.array([np.random.choice(arr_idx, size=num_of_samples, replace=False) for arr_idx in
-                              nested_indices_continuous]).ravel()
-    val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices))
-
-    return train_indices, val_indices
-
-
-def get_test_loaders(config, dataset_names):
-    emb_loaders = {}
-    test_loaders = {}
-    for dataset_name in dataset_names:
-        emb_indices, test_indices = get_split_indices(config.test_img_dir[dataset_name],
-                                                      config.test_celeb_lab[dataset_name],
-                                                      config.test_num_of_images_for_emb)
-        emb_dataset = CustomDataset1(img_dir=config.test_img_dir[dataset_name],
-                                     celeb_lab_mapper=config.test_celeb_lab_mapper[dataset_name],
-                                     img_size=config.img_size,
-                                     indices=emb_indices,
-                                     transform=transforms.Compose(
-                                         [transforms.Resize(config.img_size),
-                                          transforms.ToTensor()]))
-        emb_loader = DataLoader(emb_dataset, batch_size=config.test_batch_size)
-        emb_loaders[dataset_name] = emb_loader
-        test_dataset = CustomDataset1(img_dir=config.test_img_dir[dataset_name],
-                                      celeb_lab_mapper=config.test_celeb_lab_mapper[dataset_name],
-                                      img_size=config.img_size,
-                                      indices=test_indices,
-                                      transform=transforms.Compose(
-                                          [transforms.Resize(config.img_size),
-                                           transforms.ToTensor()]))
-        test_loader = DataLoader(test_dataset, batch_size=config.test_batch_size)
-        test_loaders[dataset_name] = test_loader
-
-    return emb_loaders, test_loaders
 
 
 class BasicLibriSpeechDataset(Dataset):
@@ -102,6 +63,8 @@ class BasicLibriSpeechDataset(Dataset):
         # audio_path = os.path.join(self.data_root_dir, self.files_path[idx])
         # print("self.files_path[idx]: ", self.wav_names[idx])
         wav_path = self.wav_names[idx]
+        if not wav_path:
+            print("wav path: ", wav_path)
         cropped_signal = get_signal_from_wav_random(wav_path)
 
         label = wav_path.split(os.path.sep)[-2]
@@ -109,13 +72,181 @@ class BasicLibriSpeechDataset(Dataset):
             cropped_signal = self.transform(cropped_signal)
         return cropped_signal, self.speaker_labels_mapper[label]
 
+# TODO: change to .flac instead .wav to support libri-train-100
     def get_wav_names(self, indices):
         files_in_folder = get_nested_dataset_files(self.root_path, self.speaker_labels_mapper.keys())
         files_in_folder = [item for sublist in files_in_folder for item in sublist]
         if indices is not None:
             files_in_folder = [files_in_folder[i] for i in indices]
-        wavs = fnmatch.filter(files_in_folder, '*.wav')
+        wavs = fnmatch.filter(files_in_folder, '*.flac')
         return wavs
+
+
+#TODO: changed from .wav to .flac to support libri-train-100
+def get_nested_dataset_files(img_dir, labels):
+    files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.flac'), recursive=True) for lab in labels]
+    return files_in_folder
+
+# TODO: train index depend on num_of_samples which depend on samples to create embbedings from. changed to fit 70% train
+def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.8):
+    dataset_nested_files = get_nested_dataset_files(img_dir, labels)
+
+    nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
+    nested_indices_continuous = [nested_indices[0]]
+    # min_samples_in = min(map(len, nested_indices))
+    for i, arr in enumerate(nested_indices[1:]):
+        nested_indices_continuous.append(arr + nested_indices_continuous[i][-1] + 1)
+
+    train_indices = np.concatenate([np.random.choice(arr_idx, size=math.floor(len(arr_idx) * split_rate), replace=False) for arr_idx in nested_indices_continuous])
+
+    val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices))
+
+    # train_indices_ravel = np.array([np.random.choice(arr_idx, size=num_of_samples, replace=False) for arr_idx in
+    #                           nested_indices_continuous]).ravel()
+    # val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices_ravel))
+
+    return train_indices, val_indices
+
+
+@torch.no_grad()
+def load_mask(config, mask_path, device):
+    transform = transforms.Compose([transforms.Resize(config.patch_size), transforms.ToTensor()])
+    img = Image.open(mask_path)
+    img_t = transform(img).unsqueeze(0).to(device)
+    return img_t
+
+def apply_perturbation(src_file, perturb, device,eps=1.0):
+    # perturb = perturb.to(device)
+    adv_signal = src_file + eps * perturb
+    return adv_signal
+
+@torch.no_grad()
+def get_person_embedding(config, loader, person_ids, embedders, device, include_others=False):
+    print('Calculating persons embeddings {}...'.format('with mask' if include_others else 'without mask'), flush=True)
+    embeddings_by_embedder = {}
+    for embedder_name, embedder in embedders.items():
+        person_embeddings = {i: torch.empty(0, device=device) for i in range(len(person_ids))}
+        for img_batch, person_indices in tqdm(loader):
+            img_batch = img_batch.to(device)
+            embedding = embedder.encode_batch(img_batch).squeeze().detach()# embedder.encode(img_batch)
+            for idx in person_indices.unique():
+                relevant_indices = torch.nonzero(person_indices == idx, as_tuple=True)
+                emb = embedding[relevant_indices]
+                person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], emb], dim=0)
+        final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
+        final_embeddings = torch.cat(final_embeddings,dim=0)
+        embeddings_by_embedder[embedder_name] = final_embeddings
+    return embeddings_by_embedder
+
+
+# @torch.no_grad()
+# def get_person_embedding_src(config, loader, celeb_lab, embedders, device, include_others=False):
+#     print('Calculating persons embeddings {}...'.format('with mask' if include_others else 'without mask'), flush=True)
+#     embeddings_by_embedder = {}
+#     for embedder_name, embedder in embedders.items():
+#         person_embeddings = {i: torch.empty(0, device=device) for i in range(len(celeb_lab))}
+#         masks_path = [config.blue_mask_path, config.black_mask_path, config.white_mask_path]
+#         for img_batch, person_indices in tqdm(loader):
+#             img_batch = img_batch.to(device)
+#             if include_others:
+#                 mask_path = masks_path[random.randint(0, 2)]
+#                 mask_t = load_mask(config, mask_path, device)
+#                 applied_batch = apply_mask(location_extractor, fxz_projector, img_batch, mask_t[:, :3], mask_t[:, 3], is_3d=True)
+#                 img_batch = torch.cat([img_batch, applied_batch], dim=0)
+#                 person_indices = person_indices.repeat(2)
+#             embedding = embedder(img_batch)
+#             for idx in person_indices.unique():
+#                 relevant_indices = torch.nonzero(person_indices == idx, as_tuple=True)
+#                 emb = embedding[relevant_indices]
+#                 person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], emb], dim=0)
+#         final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
+#         final_embeddings = torch.stack(final_embeddings)
+#         embeddings_by_embedder[embedder_name] = final_embeddings
+#     return embeddings_by_embedder
+
+
+
+def get_dataset(dataset_name):
+    if dataset_name == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL':
+        return BasicLibriSpeechDataset
+
+
+def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
+    dataset_name = dataset_config['dataset_name']
+    train_indices, val_indices = get_split_indices(dataset_config['root_path'],
+                                                   dataset_config['speaker_labels'],
+                                                   dataset_config['num_wavs_for_emb'])
+    train_loader, val_loader, test_loader = None, None, None
+    dataset = get_dataset(dataset_name)
+    if 'train' in splits_to_load:
+        train_data = dataset(root_path=dataset_config['root_path'],
+                             speaker_labels_mapper=dataset_config['speaker_labels_mapper'],
+                             indices=train_indices,
+                             **kwargs)
+        train_loader = DataLoader(train_data,
+                                  batch_size=loader_params['batch_size'],
+                                  num_workers=loader_params['num_workers'],
+                                  shuffle=True,
+                                  pin_memory=True)
+    if 'validation' in splits_to_load:
+        val_data = dataset(root_path=dataset_config['root_path'],
+                           speaker_labels_mapper=dataset_config['speaker_labels_mapper'],
+                           indices=val_indices,
+                           **kwargs)
+        val_loader = DataLoader(val_data,
+                                batch_size=loader_params['batch_size'],
+                                num_workers=loader_params['num_workers'] // 2,
+                                shuffle=False,
+                                pin_memory=True)
+    if 'test' in splits_to_load:
+        test_data = dataset(root_path=dataset_config['root_path'],
+                            **kwargs)
+        test_loader = DataLoader(test_data,
+                                 batch_size=loader_params['batch_size'],
+                                 num_workers=loader_params['num_workers'] // 2,
+                                 shuffle=False,
+                                 pin_memory=True)
+
+    # train_data = ConcatDataset([train_data, val_data])
+    # train_loader = DataLoader(train_data,
+    #                           batch_size=loader_params['batch_size'],
+    #                           num_workers=loader_params['num_workers'],
+    #                           shuffle=True,
+    #                           pin_memory=True)
+    return train_loader, val_loader, test_loader
+
+
+def get_test_loaders(config, dataset_names):
+    emb_loaders = {}
+    test_loaders = {}
+    for dataset_name in dataset_names:
+        test_indices, emb_indices = get_split_indices(config.test_img_dir[dataset_name]['root_path'],
+                                                      config.test_celeb_lab[dataset_name],
+                                                      config.test_num_of_images_for_emb)
+        dataset = get_dataset(dataset_name)
+        emb_dataset = dataset(root_path=config.test_img_dir[dataset_name]['root_path'],
+                                     speaker_labels_mapper=config.test_celeb_lab_mapper[dataset_name],
+                                     indices=emb_indices,
+                              )
+        emb_loader = DataLoader(emb_dataset, batch_size=config.test_batch_size)
+        emb_loaders[dataset_name] = emb_loader
+
+        # self.speaker_embeddings = get_embeddings(self.model,
+        #                                          self.train_loader,
+        #                                          self.cfg['dataset_config']['speaker_labels_mapper'].keys(),
+        #                                          self.cfg['device'])
+
+
+
+        test_dataset = dataset(root_path=config.test_img_dir[dataset_name]['root_path'],
+                                      speaker_labels_mapper=config.test_celeb_lab_mapper[dataset_name],
+                                      indices=test_indices
+                                      )
+        test_loader = DataLoader(test_dataset, batch_size=config.test_batch_size)
+        test_loaders[dataset_name] = test_loader
+
+    return emb_loaders, test_loaders
+
 
 # https://github.com/usc-sail/gard-adversarial-speaker-id/blob/master/dev/loaders/librispeech.py
 
@@ -227,55 +358,6 @@ class LibriSpeech4Speakers(LIBRISPEECH):
                 chapter_id) + "-" + str(utt_id).zfill(4)
 
 
-def get_dataset(dataset_name):
-    if dataset_name == 'LIBRI':
-        return BasicLibriSpeechDataset
-
-
-def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
-    dataset_name = dataset_config['dataset_name']
-    train_indices, val_indices = get_split_indices(dataset_config['root_path'],
-                                                   dataset_config['speaker_labels'],
-                                                   dataset_config['num_wavs_for_emb'])
-    train_loader, val_loader, test_loader = None, None, None
-    dataset = get_dataset(dataset_name)
-    if 'train' in splits_to_load:
-        train_data = dataset(root_path=dataset_config['root_path'],
-                             speaker_labels_mapper=dataset_config['speaker_labels_mapper'],
-                             indices=train_indices,
-                             **kwargs)
-        train_loader = DataLoader(train_data,
-                                  batch_size=loader_params['batch_size'],
-                                  num_workers=loader_params['num_workers'],
-                                  shuffle=True,
-                                  pin_memory=True)
-    if 'validation' in splits_to_load:
-        val_data = dataset(root_path=dataset_config['root_path'],
-                           speaker_labels_mapper=dataset_config['speaker_labels_mapper'],
-                           indices=val_indices,
-                           **kwargs)
-        val_loader = DataLoader(val_data,
-                                batch_size=loader_params['batch_size'],
-                                num_workers=loader_params['num_workers'] // 2,
-                                shuffle=False,
-                                pin_memory=True)
-    if 'test' in splits_to_load:
-        test_data = dataset(root_path=dataset_config['root_path'],
-                            **kwargs)
-        test_loader = DataLoader(test_data,
-                                 batch_size=loader_params['batch_size'],
-                                 num_workers=loader_params['num_workers'] // 2,
-                                 shuffle=False,
-                                 pin_memory=True)
-
-    # train_data = ConcatDataset([train_data, val_data])
-    # train_loader = DataLoader(train_data,
-    #                           batch_size=loader_params['batch_size'],
-    #                           num_workers=loader_params['num_workers'],
-    #                           shuffle=True,
-    #                           pin_memory=True)
-    return train_loader, val_loader, test_loader
-
 
 def load_pickle_file(path):
     with open(path, "rb") as f:
@@ -371,8 +453,11 @@ def load_audio_from_wav(root_path,audio_type,file_name, sample_rate=16000):
     return signal
 
 
-def save_audio_as_wav(root_path, waveform, audio_type,file_name, sample_rate=16000):
+def save_audio_as_wav(root_path, waveform, audio_type,file_name, sample_rate=16000, src_voice=""):
     file_path = os.path.join(root_path, audio_type, Path(file_name).name)
+    if '.flac' in file_name:
+        file_path = os.path.join(root_path, audio_type, f'{Path(file_name).stem}{src_voice}.wav')
+
 
     # downsample_rate = 16000
     # downsample_resample = torchaudio.transforms.Resample(
@@ -534,23 +619,31 @@ def get_uap_perturb_npy(path):
 
 def get_signal_and_fs_from_wav(wav_path, perturb_size=48000):
     signal, fs = torchaudio.load(wav_path)
-
-    if signal.shape[1] >= perturb_size:
+    # src_signal_size = signal.shape
+    # print("signal.shape[1]: ",signal.shape[1])
+    if signal.shape[1] > perturb_size +1:
         return signal, fs
 
     else:
-        cat_size = math.ceil(perturb_size / signal.shape[1])
-        cat_size = [signal for i in range(cat_size)]
+        c_size = math.ceil(perturb_size / signal.shape[1]) +1
+        # TODO: adding +1 to handle ValueError: high <= 0
+        cat_size = [signal for i in range(c_size)]
         signal = torch.cat(cat_size, 1)
-        return signal, fs
+    # if signal.shape[1]==48000:
+    #     print(f"signal len: {signal.shape} _ wav_path: {wav_path} _original_size:{src_signal_size} ")
+    return signal, fs
 
-
+# add 5 for margin. handle signal with size 48000 exactly
 def get_signal_from_wav_random(wav_path, perturb_size=48000):
     signal, _ = get_signal_and_fs_from_wav(wav_path, perturb_size=perturb_size)
     signal_len = signal.shape[1]
-    start_idx = np.random.randint(0, signal_len - (perturb_size + 1))
-    # print(start_idx)
+    if (signal_len - (perturb_size + 1)) <= 0:
+        print("temp <=0: ",wav_path )
+    start_idx = np.random.randint(low=0, high=(signal_len - (perturb_size + 1)), dtype=np.int64())
     cropped_signal = signal[0][start_idx: start_idx + perturb_size]
+    # print(start_idx)
+    # print(f'high:_ {(signal_len - (perturb_size + 10))}_signal_len{signal_len}')
+
     return cropped_signal
 
 
@@ -591,11 +684,348 @@ def get_embeddings(model, loader, person_ids, device):
     return final_embeddings
 
 
-if __name__ == '__main__':
-    training_path = 'data/LIBRI/d1'
-    basic_libri_dataset = BasicLibriSpeechDataset(training_path)
-    train_dataloader = DataLoader(basic_libri_dataset, batch_size=4, shuffle=True)
-    train_features, train_labels = next(iter(train_dataloader))
-    print(f"Feature batch shape: {train_features.size()}")
-    print(f"Labels batch shape: {train_labels.size()}")
+def add_noise_awgn():
+    # based on https://stackoverflow.com/questions/14058340/adding-noise-to-a-signal-in-python
+    # max = 0.49
+    file_path_men = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/8063/8063-274116-0029.flac"
+    # max = 0.43
+    file_path_men2 = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/1355/1355-39947-0018.flac"
+    # max = 0.365
+    file_path_w = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/8465/8465-246943-0012.flac"
+    # max = 0.389
+    file_path_w2 = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/32/32-21631-0008.flac"
+    x_volts = get_signal_from_wav_random(file_path_men)
+    # src_signal = get_signal_from_wav_random("../data/libri_train-clean-100/200/200-124140-0012.flac")
 
+    print("x_volts = " + str(np.mean(np.abs(x_volts.unsqueeze(0)).numpy() ** 2)))
+    plt.plot(x_volts)
+    print("wait")
+    plot_waveform(x_volts.unsqueeze(0), 16000)
+    x_watts = x_volts ** 2
+
+    # Adding noise using target SNR
+
+    # Set a target SNR
+    target_snr_db = 20
+
+    # Calculate signal power and convert to dB
+    # sig_avg_watts = torch.mean(x_watts)
+    sig_avg_watts = np.mean(x_watts.numpy())
+    sig_avg_db = 10 * np.log10(sig_avg_watts)
+
+    # Calculate noise according to [2] then convert to watts
+    noise_avg_db = sig_avg_db - target_snr_db
+
+    noise_avg_watts = 10 ** (noise_avg_db / 10)
+    # Generate an sample of white noise
+    mean_noise = 0
+    noise_volts = np.random.normal(mean_noise, np.sqrt(noise_avg_watts), len(x_watts))
+    plt.plot(noise_volts)
+    print("noise_volts = " + str(np.mean(np.abs(torch.from_numpy(noise_volts).unsqueeze(0)).numpy() ** 2)))
+    # Noise up the original signal
+    y_volts = x_volts + noise_volts
+
+    snr_calc = calculator_snr_direct(x_volts.unsqueeze(0), (y_volts).unsqueeze(0))
+    print("y_volts = " + str(np.mean(np.abs(y_volts.unsqueeze(0)).numpy() ** 2)))
+    plot_waveform(y_volts.unsqueeze(0), 16000)
+
+    save_emb_as_npy("..",noise_volts,"output_files","woman_perturb")
+    save_audio_as_wav("..",(torch.from_numpy(noise_volts)).unsqueeze(0).float(),"output_files","woman_perturb.wav")
+    # plt.savefig(os.path.join("..","output_files","men_perturb.png"))
+
+def create_gt_by_eps_perturbation(eps=2.):
+    file_path_men = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/8063/8063-274116-0029.flac"
+    # file_path_w2 = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/32/32-21631-0008.flac"
+    src_signal = get_signal_from_wav_random(file_path_men)
+    adv_perturb_cosim_ep100 = torch.from_numpy(load_from_npy(
+        os.path.join('..', 'data', 'uap_perturbation'), 'cosim', '100ep_100spk'))
+
+    # adv_perturb_cosim_ep100_gt_eps = adv_perturb_cosim_ep100 * eps
+
+    adv_signal_reg = src_signal + adv_perturb_cosim_ep100
+    adv_signal_eps = src_signal + adv_perturb_cosim_ep100 * eps
+
+    # save_emb_as_npy("..", uniform_noise, "output_files", "gt_eps_man_perturb")
+    save_audio_as_wav("..", adv_signal_reg, "output_files", "reg_man_perturb.wav")
+    save_audio_as_wav("..", adv_signal_eps, "output_files", "eps_man_perturb.wav")
+
+    snr_calc_reg = calculator_snr_direct(src_signal.unsqueeze(0), adv_signal_reg.unsqueeze(0))
+    snr_calc_eps = calculator_snr_direct(src_signal.unsqueeze(0), adv_signal_eps.unsqueeze(0))
+    print("snr_calc: ",snr_calc_reg)
+    print("snr_calc: ", snr_calc_eps)
+    plot_waveform(adv_signal_reg, 16000)
+    plot_waveform(adv_signal_eps, 16000)
+    print("finish eps perturbation")
+
+
+def create_uniform_perturbation():
+    file_path_men = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/8063/8063-274116-0029.flac"
+    # file_path_w2 = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/32/32-21631-0008.flac"
+    src_signal = get_signal_from_wav_random(file_path_men)
+
+    uniform_noise = 0.015 * np.random.uniform(low=-1.0, high=1.0, size=(48000))
+    noise = (torch.from_numpy(uniform_noise)).unsqueeze(0)
+    save_emb_as_npy("..", uniform_noise, "output_files", "uniform_man_perturb")
+    save_audio_as_wav("..", noise.float(), "output_files", "uniform_man_perturb.wav")
+    adversarial_signal = src_signal + noise
+    snr_calc = calculator_snr_direct(src_signal.unsqueeze(0), adversarial_signal.unsqueeze(0))
+    print("snr_calc: ",snr_calc)
+    plot_waveform(adversarial_signal, 16000)
+
+
+
+
+
+# def apply_uap_perturbation(src_file, perturb, eps=1):
+#     adv_signal = src_file + eps * perturb
+#     return adv_signal
+
+
+def add_noise_awgn_iterative(x_volts):
+    # plot_waveform(x_volts, 16000)
+    x_volts = x_volts.squeeze()
+    x_watts = x_volts ** 2
+
+    # Adding noise using target SNR
+
+    # Set a target SNR
+    target_snr_db = 20.25
+
+    # Calculate signal power and convert to dB
+    # sig_avg_watts = torch.mean(x_watts)
+    sig_avg_watts = np.mean(x_watts.numpy())
+    sig_avg_db = 10 * np.log10(sig_avg_watts)
+
+    # Calculate noise according to [2] then convert to watts
+    noise_avg_db = sig_avg_db - target_snr_db
+
+    noise_avg_watts = 10 ** (noise_avg_db / 10)
+    # Generate an sample of white noise
+    mean_noise = 0
+    noise_volts = np.random.normal(mean_noise, np.sqrt(noise_avg_watts), len(x_watts))
+    # Noise up the original signal
+    y_volts = x_volts + noise_volts
+
+    snr_calc = calculator_snr_direct(x_volts.unsqueeze(0), (y_volts).unsqueeze(0))
+    print("snr_calc in noise iterative : ", snr_calc)
+    return noise_volts
+
+def create_mean_without_signal(is_uniform=True ):
+    # plot witout signals at all
+    if is_uniform:
+        temp_uniform =  0.009* np.random.uniform(low=-1.0, high=1.0, size=(48000))#np.array([np.random.uniform(low=-1.0, high=1.0, size=(48000)) for x in range(10000) ])
+        perturb_mean = np.mean(temp_uniform, axis=0)
+        save_perturbation(torch.from_numpy(temp_uniform).unsqueeze(0), "uniform_perturb")  # snr 20.65032435243402
+        print("noise_power =" + str(np.mean(np.abs(temp_uniform) ** 2))) # 3.333814736324027e-05
+
+
+    else:
+        temp_normal = np.random.normal(0, np.sqrt(2)/250, 48000)#np.array([np.random.normal(0, np.sqrt(2)/2, 48000) for x in range(1000)])
+        perturb_mean = np.mean(temp_normal, axis=0)
+        save_perturbation(torch.from_numpy(temp_normal).unsqueeze(0), "normal_perturb") #
+        print("noise_power =" + str(np.mean(np.abs(temp_normal) ** 2))) #  snr 20.840624742979315
+    print("wait")
+    return perturb_mean
+
+
+
+def create_mean_uniform_perturbtion(uniform_perturb=True):
+
+    file_name = "uniform_perturb_test_mean" if uniform_perturb else "normal_perturb_test_mean"
+    num_eval_spks = 1
+    eps = 1
+    output_adversarial = "../data/libri_adversarial/"
+    eval_path = "../data/libri_train-clean-100/"
+    all_spkrs = os.listdir(eval_path)
+
+    rndr_spkers = np.random.choice(all_spkrs, num_eval_spks)
+
+    for i, spk in enumerate(rndr_spkers):
+        signals_to_eval = np.random.choice(os.listdir(os.path.join(eval_path, spk)), num_eval_spks)
+        for j, signal_eval in enumerate(signals_to_eval):
+            file_path = os.path.join(eval_path, spk, signal_eval)
+            src_signal = get_signal_from_wav_random(file_path).unsqueeze(0)
+            # if uniform_perturb:
+            #     noise = np.random.uniform(low=-1.0, high=1.0, size=(48000))
+            # else:
+            #     noise = add_noise_awgn_iterative(src_signal)
+            # noise = (torch.from_numpy(noise)).unsqueeze(0)
+            # st_noise += noise
+            noise = create_mean_without_signal()
+            adversarial_signal = src_signal + noise
+            snr_calc = calculator_snr_direct(src_signal.unsqueeze(0), adversarial_signal.unsqueeze(0))
+            print("snr_calc: ", snr_calc)
+
+    # rndr_spkers = np.random.choice(all_spkrs, num_eval_spks)
+    # for spk in rndr_spkers:
+    #     signals_to_eval = np.random.choice(os.listdir(os.path.join(eval_path, spk)), num_eval_spks)
+    #     curr_spk_snr = []
+    #     for signal_eval in signals_to_eval:
+    #         file_path = os.path.join(eval_path, spk, signal_eval)
+    #         src_signal = get_signal_from_wav_random(file_path).unsqueeze(0)
+    #         adversarial_signal = src_signal + st_noise
+    #         snr_calc = calculator_snr_direct(src_signal.unsqueeze(0), adversarial_signal.unsqueeze(0))
+    #         print("snr_calc: ", snr_calc)
+    #
+    # save_perturbation(st_noise, file_name)
+    print("finish create_mean_uniform_perturbtion ")
+
+
+def create_random_perturbation(uniform_perturb=True):
+    # the sum of two independent normally distributed random variables is normal,
+    # Rescaling the Irwin–Hall distribution provides the exact distribution of the random variates being generated
+
+    file_name = "uniform_perturb_test" if uniform_perturb else "normal_perturb_test"
+    is_first = False if uniform_perturb else True
+    num_eval_spks = 10
+    eps = 1
+    output_adversarial = "../data/libri_adversarial/"
+    eval_path = "../data/libri_train-clean-100/"
+    all_spkrs = os.listdir(eval_path)
+    # exper = "../data/uap_perturbation/"
+    # training_path = 'data/LIBRI/d1'
+
+    # uap_perturb = load_from_npy(exper, "cosim", "100ep_100spk")
+
+    snr_values_mean = []
+    snr_dict = {}
+    eps = 0
+    st_noise = 0
+    rndr_spkers = np.random.choice(all_spkrs, num_eval_spks)
+
+    for spk in rndr_spkers:
+        signals_to_eval = np.random.choice(os.listdir(os.path.join(eval_path, spk)), num_eval_spks)
+        curr_spk_snr = []
+        for signal_eval in signals_to_eval:
+            file_path = os.path.join(eval_path, spk, signal_eval)
+            src_signal = get_signal_from_wav_random(file_path).unsqueeze(0)
+            if uniform_perturb:
+                noise = np.random.uniform(low=-1.0, high=1.0, size=(48000))
+            else:
+                noise = add_noise_awgn_iterative(src_signal)
+            noise = (torch.from_numpy(noise)).unsqueeze(0)
+            print("noise = " + str(np.mean(np.abs(noise).numpy() ** 2)))
+            st_noise += noise
+            print("st_noise = " + str(np.mean(np.abs(st_noise).numpy() ** 2)))
+            for i in range(1,100000):
+                # if is_first:
+                #     adversarial_signal = src_signal + st_noise
+                #     snr_calc = calculator_snr_direct(src_signal.unsqueeze(0), adversarial_signal.unsqueeze(0))
+                #     is_first = False
+                #     break
+                eps = 1/i
+                adversarial_signal = src_signal + eps * st_noise
+                snr_calc = calculator_snr_direct(src_signal.unsqueeze(0), adversarial_signal.unsqueeze(0))
+
+                if snr_calc > 20 and snr_calc < 30:
+                    print("snr_calc generate: ", snr_calc)
+                    st_noise = eps * st_noise
+                    print("st_noise = " + str(np.mean(np.abs(st_noise).numpy() ** 2)))
+                    break
+
+    rndr_spkers = np.random.choice(all_spkrs, num_eval_spks)
+    for spk in rndr_spkers:
+        signals_to_eval = np.random.choice(os.listdir(os.path.join(eval_path, spk)), num_eval_spks)
+        curr_spk_snr = []
+        for signal_eval in signals_to_eval:
+            file_path = os.path.join(eval_path, spk, signal_eval)
+            src_signal = get_signal_from_wav_random(file_path).unsqueeze(0)
+            adversarial_signal = src_signal + st_noise
+            snr_calc = calculator_snr_direct(src_signal.unsqueeze(0), adversarial_signal.unsqueeze(0))
+            print("snr_calc: ",snr_calc)
+
+    save_perturbation(st_noise,file_name)
+
+
+def save_perturbation(waveform, name):
+    save_emb_as_npy("..", waveform, "output_files", name)
+    save_audio_as_wav("..", waveform.float(), "output_files", f'{name}.wav')
+
+    plot_waveform(waveform, 16000)
+
+
+
+
+
+
+def create_adversarial_files_using_perturbation(save_files = False):
+    # create adversarial perturbation based on prev perturb
+    # expr_50_50 = "/sise/home/hanina/speaker_attack/experiments/February/27-02-2023_174121_664051/"
+    num_eval_spks = 40
+    eps = 1
+    output_adversarial = "../data/19_5_2023_results/libri_adversarial/"
+    output_adversarial = output_adversarial + datetime.datetime.now().strftime("%H-%M_%d-%m-%Y")
+
+    if not os.path.exists(output_adversarial):
+        os.makedirs(output_adversarial)
+
+    exper = "../data/uap_perturbation_ecapa/"
+    training_path = 'data/LIBRI/d1'
+    # eval_path = "../data/libri_train-clean-100/"
+    eval_path = "../data/libri-test-clean"
+    uap_perturb = load_from_npy(exper,"cosim", "100ep_100spk")
+    all_spkrs = os.listdir(eval_path)
+    snr_values_mean = []
+    snr_dict = {}
+    rndr_spkers =np.random.choice(all_spkrs,num_eval_spks)
+    for spk in rndr_spkers:
+        snr_dict[spk] = []
+        signals_to_eval = np.random.choice(os.listdir(os.path.join(eval_path,spk)), num_eval_spks)
+        curr_spk_snr = []
+        for signal_eval in signals_to_eval:
+            file_path = os.path.join(eval_path, spk, signal_eval)
+            signal = get_signal_from_wav_random(file_path).unsqueeze(0)
+            adv_signal = apply_perturbation(src_file=signal, eps=eps, perturb=uap_perturb,device=device)
+            snr_calc = calculator_snr_direct(signal.unsqueeze(0), adv_signal.unsqueeze(0))
+            curr_spk_snr.append(round(snr_calc, 5))
+            snr_dict[spk].append(round(snr_calc, 5))
+            if save_files:
+                save_audio_as_wav(output_adversarial, adv_signal, "adversarial",
+                                  file_path)
+                save_audio_as_wav(output_adversarial, signal, "adversarial",
+                                  f'src_{file_path}',src_voice='_src')
+
+        snr_values_mean.append(np.array(curr_spk_snr).mean())
+    print("wait create adversarial perturbation ")
+    snr_dict = {'speakers': snr_values_mean}
+    df = pd.DataFrame(snr_dict)
+    df.to_csv(os.path.join(output_adversarial, "adversarial",'snr_mean.csv'))
+
+
+
+    # src_signal = get_signal_from_wav_random("../data/libri_train-clean-100/200/200-124140-0012.flac")
+
+if __name__ == '__main__':
+    import torchaudio
+
+    create_adversarial_files_using_perturbation()
+    # create_adversarial_files_using_perturbation()
+    # add_noise_awgn()
+    from speechbrain.pretrained import EncoderClassifier
+
+    # classifier = EncoderClassifier.from_hparams(source="speechbrain/spkrec-xvect-voxceleb",
+    #                                             savedir="pretrained_models/spkrec-xvect-voxceleb")
+    # signal = get_signal_from_wav_random("../data/libri_train-clean-100/200/200-124140-0012.flac")
+    # embeddings = classifier.encode_batch(signal)
+    # masks_path = os.path.join('.', 'data', 'uap_perturbation')  # change to perturb
+    # create_gt_by_eps_perturbation()
+    # create_adversarial_files_using_perturbation()
+
+    # print("embeddings: ", embeddings.shape)
+    # add_noise_awgn()
+    # create_uniform_perturbation()
+    # add_noise_awgn()
+    # create_random_perturbation(uniform_perturb=False)
+
+    create_mean_uniform_perturbtion()
+
+    # create_uniform_perturbation()
+    # create_mean_uniform_perturbtion()
+    # create_adversarial_files_using_perturbation()
+
+    print("wait")
+    # basic_libri_dataset = BasicLibriSpeechDataset(training_path)
+    # train_dataloader = DataLoader(basic_libri_dataset, batch_size=4, shuffle=True)
+    # train_features, train_labels = next(iter(train_dataloader))
+    # print(f"Feature batch shape: {train_features.size()}")
+    # print(f"Labels batch shape: {train_labels.size()}")

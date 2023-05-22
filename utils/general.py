@@ -7,11 +7,14 @@ import json
 import pathlib
 import inspect
 import torchaudio
+from pypesq import pesq
 # import cv2
 # from sklearn import metrics
 import matplotlib as plt
 import seaborn as sns
 import scipy.io.wavfile as wav
+from pathlib import Path
+
 
 def init_seeds(seed=0):
     # Initialize random number generator (RNG) seeds https://pytorch.org/docs/stable/notes/randomness.html
@@ -75,6 +78,12 @@ def save_config_to_file(config, current_folder):
         d_new.pop('scheduler_factory')
         json.dump(d_new, config_file)
 
+
+def save_class_to_file(config, current_folder):
+    with open(os.path.join(current_folder, 'config.json'), 'w') as config_file:
+        d = dict(vars(config))
+        # d.pop('scheduler_factory')
+        json.dump(d, config_file)
 
 def check_dict(d):
     d_new = {}
@@ -167,6 +176,7 @@ def plot_loss_by_parts_A_B(self):
     del df_loss
     plt.show()
 
+
 def calculator_snr_sec(perturbed_p, delta_uap_p):
     adv, fs = torchaudio.load(perturbed_p)#wavfile.read(os.path.join(audios_path, audio_path))
     # print("adv: ",adv)
@@ -198,13 +208,65 @@ def calculator_snr_(src_p, perturbed_p):
     print("SNR: ",snr)
     return snr
 
-def calculator_snr_direct(src_array ,adv_array):
+
+# def save_class_to_file(config, current_folder):
+#     with open(os.path.join(current_folder, 'config.json'), 'w') as config_file:
+#         d = dict(vars(config))
+#         d.pop('scheduler_factory')
+#         json.dump(d, config_file)
+
+def PESQ(src_array, adv_array, sr=16000, device='cpu',eps=0):
+    src_array = (src_array + eps).to(device)
+    adv_array = adv_array.detach().to(device)
+    pesq_calc = 0.0
+    vector_numbers = 3# src_array.shape[0]
+    for i in range(vector_numbers):
+        pesq_curr = pesq(src_array[i].detach(), adv_array[i].detach(), sr)
+        pesq_calc += pesq_curr
+        # print("SNR curr direct: ",snr_curr)
+    return pesq_calc / vector_numbers
+
+
+def calculate_l2(src_array, adv_array,device='cpu'):
+    src_array = src_array.to(device)
+    adv_array = adv_array.detach().to(device)
+
+    l2_calc = 0.0
+    vector_numbers = src_array.shape[0]
+    for i in range(vector_numbers):
+        l2_curr = torch.dist(src_array[i], adv_array[i], 2)
+        l2_calc += l2_curr
+    return l2_calc / vector_numbers
+
+def calculator_snr_per_signal(src_array ,adv_array, device='cpu',eps=0):
     # adv, fs = torchaudio.load(perturbed_p)#wavfile.read(os.path.join(audios_path, audio_path))
     # print("src_array: ",src_array)
     # delta_uap, fs = torchaudio.load(delta_uap_p)#wavfile.read(os.path.join(audios_path, audio_path))
     # print("adv_array: ",adv_array)
     # src = adv_array-src_array
-    snr = 0
+    src_array = (src_array + eps).to(device)
+    adv_array = adv_array.to(device)
+    snr = []
+    vector_numbers = src_array.shape[0]
+    for i in range(vector_numbers):
+        power_sig = torch.sum(src_array[i] * src_array[i]).cpu().detach().numpy()
+        delta = src_array[i] - adv_array[i] # checking
+        # delta = adv_array - src_array  # checking
+        power_noise = torch.sum(delta * delta).cpu().detach().numpy()
+        snr_curr = 10 * np.log10(power_sig / power_noise)
+        snr.append(snr_curr)
+        # print("SNR curr direct: ",snr_curr)
+    return snr
+
+def calculator_snr_direct(src_array ,adv_array, device='cpu',eps=0):
+    # adv, fs = torchaudio.load(perturbed_p)#wavfile.read(os.path.join(audios_path, audio_path))
+    # print("src_array: ",src_array)
+    # delta_uap, fs = torchaudio.load(delta_uap_p)#wavfile.read(os.path.join(audios_path, audio_path))
+    # print("adv_array: ",adv_array)
+    # src = adv_array-src_array
+    src_array = (src_array + eps).to(device)
+    adv_array = adv_array.to(device)
+    snr = 0.0
     vector_numbers = src_array.shape[0]
     for i in range(vector_numbers):
         power_sig = torch.sum(src_array[i] * src_array[i]).cpu().detach().numpy()
@@ -217,12 +279,44 @@ def calculator_snr_direct(src_array ,adv_array):
     return snr/vector_numbers
 
 
+def calculate_snr_github_direct(pred: np.array, label: np.array): # pred = adversarial, label = source data
+    # assert pred.shape == label.shape, "the shape of pred and label must be the same"
+    pred, label = (pred + 1) / 2, (label + 1) / 2
+    if len(pred.shape) > 1:
+        sigma_s_square = np.mean(label * label, axis=1)
+        sigma_e_square = np.mean((pred - label) * (pred - label), axis=1)
+
+        # sigma_s_square = np.mean(label.numpy() * label.numpy(), axis=1)
+        # np.mean((pred.cpu().detach().numpy() - label.cpu().detach().numpy()) * (
+        #             pred.cpu().detach().numpy() - label.cpu().detach().numpy()), axis=1)
+
+        # snr = 10 * np.log10((sigma_s_square / max(sigma_e_square, 1e-9))) # signal / noise
+        snr = 10 * np.log10((sigma_s_square / np.maximum(sigma_e_square, 1e-9)))
+        snr = snr.mean()
+    else:
+        sigma_s_square = np.mean(label * label)
+        # print('sigma_s_square:', sigma_s_square)
+        sigma_e_square = np.mean((pred - label) * (pred - label))
+        # print('sigma_e_square:', sigma_e_square)
+        # print(sigma_s_square/max(sigma_e_square, 1e-9))
+        snr = 10 * np.log10((sigma_s_square / np.maximum(sigma_e_square, 1e-9)))
+    return snr
+
+
+
+def load_from_npy(root_path, audio_type, file_name):
+    file_path = os.path.join(root_path, audio_type, Path(file_name).stem)
+    return np.load(f'{file_path}.npy')
+
+
 def get_pert(pert_type, size):
     if pert_type == 'zeros':
         adv_pert = torch.zeros((1, size))
     elif pert_type == 'ones':
         adv_pert = torch.ones((1, size))
     elif pert_type == 'random':
-        adv_pert = torch.FloatTensor(1, size).uniform_(-0.01, 0.01)
+        adv_pert = torch.FloatTensor(1, size).uniform_(-0.0001, 0.0001)
+    elif pert_type == 'prev':
+        adv_pert = torch.from_numpy(load_from_npy( os.path.join('.', 'data', 'uap_perturbation', 'ecapa'), 'snr', '100ep_100spk'))
     adv_pert.requires_grad_(True)
     return adv_pert

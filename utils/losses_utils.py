@@ -1,5 +1,8 @@
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.modules import Module
+from torch import Tensor
+from utils.general import calculator_snr_direct
 import numpy as np
 from constants import A,B,S,SNR_smooth
 
@@ -40,6 +43,30 @@ class CosineSimilarity:
 
     def __call__(self, x, y):
         return (self.func(x.squeeze(), y.squeeze()) + 1) / 2
+
+
+class WSNRLoss:
+    def __init__(self, **kwargs) -> None:
+        super().__init__()
+        self.func = SNRLoss(**kwargs)
+
+    def __call__(self, x, y):
+        return self.func(x, y)
+
+
+class SNRLoss(Module):
+
+    __constants__ = ['dim', 'eps']
+    dim: int
+    eps: float
+    #1e-10
+    def __init__(self,eps: float =1e-10 ) -> None:
+        super(SNRLoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, x1: Tensor, x2: Tensor) -> Tensor:
+        return calculator_snr_direct(x1, x2)
+
 
 
 class Loss:
@@ -332,10 +359,11 @@ class AS2TL2Loss(nn.Module):
 
 
 
-def custom_clip(x, x_adv, eps):
-    x_add_epsilon = torch.add(x, eps)
-    x_sub_epsilon = torch.sub(x, eps)
-    part_a = torch.minimum(x_add_epsilon, torch.Tensor([1]))
-    part_b = torch.maximum(x_adv, x_sub_epsilon)
-    x_adv_clip = torch.minimum(part_a, torch.maximum(part_b, torch.Tensor([-1])))
+def custom_clip(x, x_adv, eps,device='cpu'):
+    x_add_epsilon = torch.add(x, eps).to(device)
+    print(device)
+    x_sub_epsilon = torch.sub(x, eps).to(device)
+    part_a = torch.minimum(x_add_epsilon, torch.Tensor([1]).to(device))
+    part_b = torch.maximum(x_adv.to(device), x_sub_epsilon).to(device)
+    x_adv_clip = torch.minimum(part_a, torch.maximum(part_b, torch.Tensor([-1]).to(device))).to(device)
     return x_adv_clip
