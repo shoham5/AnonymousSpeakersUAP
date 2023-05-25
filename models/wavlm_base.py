@@ -1,7 +1,7 @@
 from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
-from datasets import load_dataset
+# from datasets import load_dataset
 import torch
-import operator, functools
+# import operator, functools
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
