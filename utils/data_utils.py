@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 from warnings import warn
 from visualization.plots import plot_waveform
-from utils.general import calculator_snr_direct
+from utils.general import calculator_snr_direct, calculate_snr_github_direct
 import matplotlib.pyplot as plt
 import datetime
 import numpy as np
@@ -674,6 +674,7 @@ def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device)
 def get_embeddings(model, loader, person_ids, device):
     embeddings = {id: torch.empty(0, device=device) for id in person_ids}
     for cropped_signal_batch, person_ids_batch in tqdm(loader):
+        cropped_signal_batch = cropped_signal_batch.to(device)
         embedding = model.encode_batch(cropped_signal_batch).detach()
         for idx in person_ids_batch.unique():
             relevant_indices = torch.nonzero(person_ids_batch == idx, as_tuple=True)
@@ -948,10 +949,10 @@ def save_perturbation(waveform, name):
 
 
 
-def create_adversarial_files_using_perturbation(save_files = False):
+def create_adversarial_files_using_perturbation(save_files = True):
     # create adversarial perturbation based on prev perturb
     # expr_50_50 = "/sise/home/hanina/speaker_attack/experiments/February/27-02-2023_174121_664051/"
-    num_eval_spks = 40
+    num_eval_spks = 3
     eps = 1
     output_adversarial = "../data/19_5_2023_results/libri_adversarial/"
     output_adversarial = output_adversarial + datetime.datetime.now().strftime("%H-%M_%d-%m-%Y")
@@ -959,11 +960,16 @@ def create_adversarial_files_using_perturbation(save_files = False):
     if not os.path.exists(output_adversarial):
         os.makedirs(output_adversarial)
 
-    exper = "../data/uap_perturbation_ecapa/"
+    if not os.path.exists(os.path.join(output_adversarial , "adversarial")):
+        os.makedirs(os.path.join(output_adversarial , "adversarial"))
+
+
+    exper = "../data/19_5_2023_results/uap_perturbation_wavlm/"
+    # ecapa, xvector, wavlm
     training_path = 'data/LIBRI/d1'
     # eval_path = "../data/libri_train-clean-100/"
     eval_path = "../data/libri-test-clean"
-    uap_perturb = load_from_npy(exper,"cosim", "100ep_100spk")
+    uap_perturb = load_from_npy(exper,"l2_eps1000", "uap_ep100_spk100")
     all_spkrs = os.listdir(eval_path)
     snr_values_mean = []
     snr_dict = {}
@@ -976,7 +982,11 @@ def create_adversarial_files_using_perturbation(save_files = False):
             file_path = os.path.join(eval_path, spk, signal_eval)
             signal = get_signal_from_wav_random(file_path).unsqueeze(0)
             adv_signal = apply_perturbation(src_file=signal, eps=eps, perturb=uap_perturb,device=device)
-            snr_calc = calculator_snr_direct(signal.unsqueeze(0), adv_signal.unsqueeze(0))
+            snr_calc = calculate_snr_github_direct(signal.unsqueeze(0).cpu().detach().numpy(), adv_signal.unsqueeze(0).cpu().detach().numpy())
+            # (adv_cropped_signal_batch.cpu().detach().numpy(),
+            # cropped_signal_batch.cpu().detach().numpy())
+            # snr_calc = calculator_snr_direct(signal.unsqueeze(0), adv_signal.unsqueeze(0))
+
             curr_spk_snr.append(round(snr_calc, 5))
             snr_dict[spk].append(round(snr_calc, 5))
             if save_files:
@@ -1017,7 +1027,7 @@ if __name__ == '__main__':
     # add_noise_awgn()
     # create_random_perturbation(uniform_perturb=False)
 
-    create_mean_uniform_perturbtion()
+    # create_mean_uniform_perturbtion()
 
     # create_uniform_perturbation()
     # create_mean_uniform_perturbtion()

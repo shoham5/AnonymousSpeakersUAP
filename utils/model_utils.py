@@ -1,9 +1,10 @@
 from speechbrain.pretrained import EncoderClassifier
-from models.wavlm_base import WavLm
+# from models.wavlm_base import WavLm
+from models.WavLM.WavLM import WavLM, WavLMConfig
 from pathlib import Path
 import os
 import sys
-
+import torch
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
@@ -25,13 +26,19 @@ def get_speaker_model_by_name(embedder_name, cfg, device):
     if embedder_name == 'spkrec-ecapa-voxceleb': # 'SpeechBrain' :
         model = EncoderClassifier.from_hparams(cfg['files_path'])
         model.device = device
+        model.eval()
+        model.to(device)
+
     elif embedder_name == 'spkrec-xvect-voxceleb':
         model = EncoderClassifier.from_hparams(cfg['files_path'])
         model.device = device
-    elif embedder_name == 'wavlm':
-        wavlm = WavLm()
-        model = wavlm.get_model()
-        model.device = device
+        model.eval()
+        model.to(device)
+    # elif embedder_name == 'wavlm':
+    #     model = WavLm(cfg['device'])
+        # wavlm = WavLm()
+        # model = wavlm.get_model()
+        # model.device = device
     else:
         raise Exception('Model type {} not found'.format(embedder_name))
 
@@ -52,22 +59,26 @@ def get_speaker_model(cfg):
     #if cfg['model_source'] == 'SpeechBrain':
         model = EncoderClassifier.from_hparams(cfg['model_config']['files_path'])
         model.device = cfg['device']
-        model.eval()
-        model.to(cfg['device'])
+        # model.eval()
 
     elif cfg['model_name'] == 'spkrec-xvect-voxceleb':
         model = EncoderClassifier.from_hparams(cfg['model_config']['files_path'])
         model.device = cfg['device']
-        model.eval()
-        model.to(cfg['device'])
+        # model.eval()
 
+    # elif cfg['model_name'] == 'wavlm':
+    #     model = WavLm(cfg['device'])
+    #     model = wavlm.get_model()
+    #     model.device = cfg['device']
     elif cfg['model_name'] == 'wavlm':
-        model = WavLm(cfg['device'])
-        # model = wavlm.get_model()
-        # model.device = cfg['device']
+        checkpoint = torch.load(cfg['model_config']['files_path'])
+        cfg_model = WavLMConfig(checkpoint['cfg'])
+        model = WavLM(cfg_model)
+        model.load_state_dict(checkpoint['model'])
     else:
         raise Exception('Model type {} not found'.format(cfg['model_type']))
 
-
+    model.eval()
+    model.to(cfg['device'])
     print("model name in get speaker model is : ", cfg['model_name'])
     return model

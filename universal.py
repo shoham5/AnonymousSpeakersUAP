@@ -1,4 +1,4 @@
-from transformers import AdamW
+from torch.optim import AdamW
 import torch
 
 import gc

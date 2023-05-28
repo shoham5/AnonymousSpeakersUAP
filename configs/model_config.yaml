@@ -2,5 +2,7 @@ spkrec-ecapa-voxceleb: # equivalent to speechbrain/spkrec-ecapa-voxceleb
   files_path: 'pretrained_models/spkrec-ecapa-voxceleb'
 spkrec-xvect-voxceleb:
   files_path: 'pretrained_models/spkrec-xvect-voxceleb'
+#wavlm:
+#  files_path: 'pretrained_models/microsoft/wavlm-base-sv'
 wavlm:
-  files_path: 'pretrained_models/microsoft/wavlm-base-sv'
+  files_path: 'models/WavLM/WavLM-Base.pt'
