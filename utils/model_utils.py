@@ -26,9 +26,6 @@ def get_speaker_model_by_name(embedder_name, cfg, device):
     if embedder_name == 'spkrec-ecapa-voxceleb': # 'SpeechBrain' :
         model = EncoderClassifier.from_hparams(cfg['files_path'])
         model.device = device
-        model.eval()
-        model.to(device)
-
     elif embedder_name == 'spkrec-xvect-voxceleb':
         model = EncoderClassifier.from_hparams(cfg['files_path'])
         model.device = device
