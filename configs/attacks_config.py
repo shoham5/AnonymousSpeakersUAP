@@ -7,6 +7,7 @@ import datetime
 import time
 from utils.data_utils import create_speakers_list
 from utils.general import init_seeds
+# import nemo.collections.asr as nemo_asr
 
 
 # init seed cuda
@@ -27,7 +28,7 @@ class BaseConfig:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model_source = 'SpeechBrain'  # see configs/model_config.yaml for other options
-        model_name = "wavlm" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
+        model_name = "titanet" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
 
         # 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
 
@@ -258,7 +259,7 @@ class UniversalAttackConfig(BaseConfig):
     def __init__(self):
         super(UniversalAttackConfig, self).__init__()
         self.init_pert_type = "random" ##  'zeros' #, "random" "prev"
-        self.start_learning_rate = 10 #5e-3 #5e-4#5e-4 # 5e-1 #5e-2 #5e-3
+        self.start_learning_rate = 5e-3 # 10 #5e-3 #5e-4#5e-4 # 5e-1 #5e-2 #5e-3
         self.es_patience = 7
         self.sc_patience = 2
         self.sc_min_lr = 1e-8 # 1e-8

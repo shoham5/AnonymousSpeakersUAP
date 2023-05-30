@@ -92,8 +92,8 @@ class UniversalAttack:
         # # change_eps_projection = math.floor(self.cfg.epochs / 4)
         # print("rndr_eps: ", rndr_eps)
         loss_config = "cosim" #"pesq_snr" # snr   cosim
-        optimizer = AdamW([adv_pert], lr=self.cfg.start_learning_rate)
-        # optimizer = torch.optim.Adam([adv_pert], lr=self.cfg.start_learning_rate, amsgrad=True)
+        # optimizer = AdamW([adv_pert], lr=self.cfg.start_learning_rate)
+        optimizer = torch.optim.Adam([adv_pert], lr=self.cfg.start_learning_rate, amsgrad=True)
         scheduler = self.cfg.scheduler_factory(optimizer)
         print("eps_projection: ",self.eps_projection)
         print(f"\nconfig generate: uap_init_{self.cfg['init_pert_type']}_{loss_config}_ep100_spk100")

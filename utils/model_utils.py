@@ -1,10 +1,11 @@
 from speechbrain.pretrained import EncoderClassifier
-# from models.wavlm_base import WavLm
+from models.wavlm_base import Titanet
 from models.WavLM.WavLM import WavLM, WavLMConfig
 from pathlib import Path
 import os
 import sys
 import torch
+
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
@@ -56,11 +57,15 @@ def get_speaker_model(cfg):
     #if cfg['model_source'] == 'SpeechBrain':
         model = EncoderClassifier.from_hparams(cfg['model_config']['files_path'])
         model.device = cfg['device']
+        model.eval()
+        model.to(cfg['device'])
         # model.eval()
 
     elif cfg['model_name'] == 'spkrec-xvect-voxceleb':
         model = EncoderClassifier.from_hparams(cfg['model_config']['files_path'])
         model.device = cfg['device']
+        model.eval()
+        model.to(cfg['device'])
         # model.eval()
 
     # elif cfg['model_name'] == 'wavlm':
@@ -72,10 +77,21 @@ def get_speaker_model(cfg):
         cfg_model = WavLMConfig(checkpoint['cfg'])
         model = WavLM(cfg_model)
         model.load_state_dict(checkpoint['model'])
+        model.eval()
+        model.to(cfg['device'])
+
+    elif cfg['model_name'] == 'titanet':
+        model = Titanet(cfg['device'])
+        # model = titanet.get_model()
+
+        print("wait")
+        # checkpoint = torch.load(cfg['model_config']['files_path'])
+        # cfg_model = WavLMConfig(checkpoint['cfg'])
+        # model = WavLM(cfg_model)
+        # model.load_state_dict(checkpoint['model'])
     else:
         raise Exception('Model type {} not found'.format(cfg['model_type']))
 
-    model.eval()
-    model.to(cfg['device'])
+
     print("model name in get speaker model is : ", cfg['model_name'])
     return model

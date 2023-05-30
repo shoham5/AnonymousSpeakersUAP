@@ -2,6 +2,7 @@ from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
 # from datasets import load_dataset
 import torch
 # import operator, functools
+import nemo.collections.asr as nemo_asr
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -105,3 +106,99 @@ class WavLm:
 #           'attention_mask' : attention_mask}
 #
 # return output
+
+
+
+class Titanet:
+
+    def __init__(self, device):
+        self.model = nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(
+            "nvidia/speakerverification_en_titanet_large")
+        # self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained('microsoft/wavlm-base-sv')
+        # self.model = WavLMForXVector.from_pretrained('microsoft/wavlm-base-sv')# .to(device)
+        # self.model.output_hidden_states = True
+        self.model.eval()
+        # self.model.train()
+        # self.sampling_rate = 16_000
+        # self.do_normalize = False
+        # self.padding = True
+        # self.padding_value = 0.0
+        # self.return_attention_mask = True
+        # self.return_tensors = "pt"
+        self.device = device
+        self.model = self.model.to(self.device)
+        # for param in self.model.base_model.parameters():
+        #     param.requires_grad = False
+
+
+
+    def get_model(self):
+        return self.model
+
+    def encode_batch(self, wavs, wav_lens=None, normalize=False):
+        """Encodes the input audio into a single vector embedding.
+
+        The waveforms should already be in the model's desired format.
+        You can call:
+        ``normalized = <this>.normalizer(signal, sample_rate)``
+        to get a correctly converted signal in most cases.
+
+        Arguments
+        ---------
+        wavs : torch.tensor
+            Batch of waveforms [batch, time, channels] or [batch, time]
+            depending on the model. Make sure the sample rate is fs=16000 Hz.
+        wav_lens : torch.tensor
+            Lengths of the waveforms relative to the longest one in the
+            batch, tensor of shape [batch]. The longest one should have
+            relative length 1.0 and others len(waveform) / max_length.
+            Used for ignoring padding.
+        normalize : bool
+            If True, it normalizes the embeddings with the statistics
+            contained in mean_var_norm_emb.
+
+        Returns
+        -------
+        torch.tensor
+            The encoded batch
+        """
+        # Manage single waveforms in input
+        if len(wavs.shape) == 1:
+            wavs = wavs.unsqueeze(0)
+
+        # Assign full length if wav_lens is not assigned
+        # if wav_lens is None:
+        #     wav_lens = torch.ones(wavs.shape[0], device=self.device)
+        #
+        # # Storing waveform in the specified device
+        # wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
+        # wavs = wavs.float()
+        # wavs = wavs.to(self.device)
+        # print("type")
+        # wavs_np = list(wavs.cpu().numpy()) #.to(self.device)
+        # wavs_np = list(wavs.cpu().detach().numpy())
+        # del wavs
+
+
+
+        # embeddings = self.model(**inputs).embeddings
+        # del inputs
+        # del wavs_np
+        # torch.cuda.empty_cache()
+        # return embeddings# .to(self.device)
+
+    # def _torch_predict_speaker_vector(self, audio_file):
+        # default input sample rate is 16K
+        # audio, sr = librosa.load(audio_file, sr=16000)
+
+        # audio_length = torch.tensor([wavs.shape[-1] * wavs.shape[-1]])
+        # audio_signal, audio_signal_len = (
+        #     torch.tensor([wavs], device=self.device),
+        #     torch.tensor([audio_length], device=self.device),
+        # )
+
+        _, embs = self.model.forward(input_signal=wavs, input_signal_length=torch.tensor([wavs.shape[-1]] * wavs.shape[0]).to(self.device))
+        # emb_shape = embs.shape[-1]
+        # embs = embs.view(-1, emb_shape)
+
+        return embs # .cpu().detach().numpy()
