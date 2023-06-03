@@ -198,7 +198,7 @@ class Titanet:
         # )
 
         _, embs = self.model.forward(input_signal=wavs, input_signal_length=torch.tensor([wavs.shape[-1]] * wavs.shape[0]).to(self.device))
-        # emb_shape = embs.shape[-1]
-        # embs = embs.view(-1, emb_shape)
+        emb_shape = embs.shape[-1]
+        embs = embs.view(-1, emb_shape)
 
         return embs # .cpu().detach().numpy()

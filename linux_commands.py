@@ -3,6 +3,7 @@ import glob
 import subprocess
 from pathlib import Path
 import sys
+import numpy as np
 
 
 
@@ -92,6 +93,7 @@ def split_libri_to_train_test(src_path="data/libri_train-clean-100", dest_path =
 
 
 
+
     # all_dirs = os.listdir(src_path)
     # for curr in all_dirs:
     #     inner = [name for name in os.listdir(os.path.join(src_path, curr)) if
@@ -105,6 +107,55 @@ def split_libri_to_train_test(src_path="data/libri_train-clean-100", dest_path =
     #     # files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.wav'), recursive=True) for lab in labels]
 
 
+def split_voxceleb1_to_train_test(src_path="data/voxceleb1", dest_path ="data/train_test-voxceleb1"):
+        # path_obj = Path(src_path)
+        # filename = path_obj.stem
+
+        # Path(f'{path_obj.parent}/data_lists').mkdir(parents=True, exist_ok=True)
+
+        id_dir_to_train = os.listdir(src_path)
+
+        # train_files = defaultdict()
+        # validete_files = defaultdict()
+
+        for speaker_id in tqdm(id_dir_to_train, desc="Speaker_id:"):
+            if not os.path.exists(Path(f'{dest_path}/train/{speaker_id}')):
+              os.makedirs(Path(f'{dest_path}/train/{speaker_id}'))
+              os.makedirs(Path(f'{dest_path}/test/{speaker_id}'))
+            all_speaker_path = [f for f in glob.glob(f"{src_path}/{speaker_id}/*/*.wav")]
+            x_train, x_test = train_test_split(all_speaker_path, test_size=0.2,
+                                               shuffle=True)
+            print("cwd  :" ,os.getcwd() )
+            for uttr in x_train:
+                p = subprocess.Popen(['cp', f'{uttr}',
+                                      f"{dest_path}/train/{speaker_id}/{uttr.split('/')[-2]}_{Path(uttr).name}"])#, cwd=os.path.join(src_path, speaker_id))
+                p.wait()
+
+            for test_uttr in x_test:
+                p = subprocess.Popen(['cp', f'{test_uttr}',
+                                      f"{dest_path}/test/{speaker_id}/{test_uttr.split('/')[-2]}_{Path(test_uttr).name}"])#, cwd=os.path.join(src_path, speaker_id))
+                p.wait()
+
+
+            # $$$ change to true in eval
+            # train_files[speaker_id] = x_train
+            # test_files[speaker_id] = x_test
+
+        # write_json(f'{Path(src_path).parent}/{dest_path}/{filename}/train_files', train_files)
+        # write_json(f'{Path(src_path).parent}/data_lists/{filename}/test_files', test_files)
+
+
+def get_subset_speakers_from_dataset(src_path="data/voxceleb1", dest_path="data/sampels_test-voxceleb1", spks_num=100):
+
+    if not os.path.exists(Path(f'{dest_path}')):
+        os.makedirs(Path(f'{dest_path}'))
+    speakers_dir = os.listdir(src_path)
+
+    np.random.seed(42)
+    random_speakers = np.random.choice(speakers_dir, spks_num)
+    for speaker_id in tqdm(random_speakers, desc="Speaker_id:"):
+        p = subprocess.Popen(['cp', '-R', f'{os.path.join(src_path,speaker_id)}', f"{dest_path}/{speaker_id}"])
+        p.wait()
 
 def main_nvidia():
 # https://support.huaweicloud.com/intl/en-us/modelarts_faq/modelarts_05_0374.html
@@ -157,7 +208,10 @@ def run_kill_command():
     # files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.wav'), recursive=True) for lab in labels]
 import torch
 if __name__ == '__main__':
-    run_nvidia_smi_command()
+    # get_subset_speakers_from_dataset()
+
+    # split_voxceleb1_to_train_test()
+    # run_nvidia_smi_command()
     # run_kill_command()
     # torch.cuda.empty_cache()
     # main_nvidia()

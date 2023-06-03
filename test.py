@@ -10,7 +10,7 @@ from configs.attacks_config import config_dict
 from utils.model_utils import get_speaker_model
 from utils.data_utils import get_embeddings, get_loaders
 from utils.data_utils import load_from_npy
-from utils.general import get_instance, save_config_to_file,calculator_snr_per_signal, calculator_snr_direct, get_pert, PESQ, calculate_l2
+from utils.general import get_instance, save_config_to_file,calculator_snr_per_signal, calculator_snr_direct, get_pert, PESQ, calculate_l2,calculate_snr_github_direct
 from utils.data_utils import save_audio_as_wav, create_dirs_not_exist, save_emb_as_npy, get_test_loaders,  get_person_embedding
 from utils.losses_utils import WSNRLoss,SNRLoss,custom_clip
 from utils.model_utils import load_embedder
@@ -70,7 +70,8 @@ class Evaluator:
         # self.random_mask_t = utils.load_mask(self.config, self.config.random_mask_path, device)  # $$$ add perturbation according to previus known
         # self.perturbations = load_perturbations_from_files()
         self.sims2 = get_instance(self.config.similarity_config_one['module_name'], self.config.similarity_config_one['class_name'])(**self.config.similarity_params)
-        self.mask_names = ['Clean','AWGN','UNIFORM','SIM100','SNR100','PESQ100','EPS']
+        # self.mask_names = ['Clean','AWGN','UNIFORM','SIM100','SNR100','PESQ100','EPS']
+        self.mask_names = ['Clean', 'AWGN','uniform', 'Wavlm', 'ECAPA', 'Xvector']
             #,'SI100','SN100','PESQ100','com']
                            # 'AWGN-M','AWGN-W','UNI-M','UNI-W',
                            #'COS10' ,'COS50',
@@ -82,21 +83,23 @@ class Evaluator:
         Path(self.config.current_dir).mkdir(parents=True, exist_ok=True)
         # save_config_to_file(self.config, self.config.current_dir)
         utils.general.save_class_to_file(self.config, self.config.current_dir)
+        base_path = os.path.join('.', 'data',"uap_perturbation","MAY_UAP")
         # Test options
         # self.masks_path = os.path.join('.', 'data', 'uap_perturbation_ecapa')  # change to perturb
-        self.xvector_path = os.path.join('.', 'data', 'uap_perturbation','xvector')  # change to perturb
-        self.ecapa_path = os.path.join('.', 'data', 'uap_perturbation', 'ecapa')  # change to perturb
+        self.xvector_path = os.path.join(base_path, 'xvector')  # change to perturb
+        self.ecapa_path = os.path.join(base_path,  'ecapa')  # change to perturb
+        self.wavlm_path = os.path.join(base_path, 'wavlm')  # change to perturb
         # load_from_npy
 
-        self.random_perturb_man_awgn = torch.from_numpy(load_from_npy(self.ecapa_path, 'random', 'awgn')).unsqueeze(0).to(device)
+        self.random_perturb_man_awgn = torch.from_numpy(load_from_npy(base_path, 'random', 'awgn')).unsqueeze(0).to(device)
         self.random_perturb_man_uniform = torch.from_numpy(
-            load_from_npy(self.ecapa_path, 'random', 'uniform')).unsqueeze(0).to(device)
+            load_from_npy(base_path, 'random', 'uniform')).unsqueeze(0).to(device)
 
-        self.adv_perturb_cosim_ep100 = torch.from_numpy(load_from_npy(self.ecapa_path, 'cosim', '100ep_100spk')).to(
+        self.adv_perturb_cosim_ep100_ecapa = torch.from_numpy(load_from_npy(self.ecapa_path, 'cosim', '100ep_100spk')).to(
             device)
-        self.adv_perturb_snr_cosim_ep100 = torch.from_numpy(load_from_npy(self.ecapa_path, 'snr', '100ep_100spk')).to(
-            device)
-        self.adv_perturb_pesq_snr_cosim_ep100 = torch.from_numpy(load_from_npy(self.ecapa_path, 'pesq_snr', '100ep_100spk')).to(device)
+        # self.adv_perturb_snr_cosim_ep100 = torch.from_numpy(load_from_npy(self.ecapa_path, 'snr', '100ep_100spk')).to(
+        #     device)
+        # self.adv_perturb_pesq_snr_cosim_ep100 = torch.from_numpy(load_from_npy(self.ecapa_path, 'pesq_snr', '100ep_100spk')).to(device)
 
         # self.random_perturb_woman_awgn = torch.from_numpy(load_from_npy(self.masks_path, 'random', 'awgn_woman')).unsqueeze(0).to(device)
         # self.random_perturb_woman_uniform = torch.from_numpy(load_from_npy(self.masks_path, 'random', 'uniform_woman')).unsqueeze(0).to(device)
@@ -114,10 +117,13 @@ class Evaluator:
 
         self.adv_perturb_cosim_ep100_xvector = torch.from_numpy(load_from_npy(self.xvector_path, 'cosim', '100ep_100spk')).to(
             device)
-        self.adv_perturb_snr_cosim_ep100_xector = torch.from_numpy(load_from_npy(self.xvector_path, 'snr', '100ep_100spk')).to(
-            device)
-        self.adv_perturb_pesq_snr_cosim_ep100_xvector = torch.from_numpy(load_from_npy(self.xvector_path, 'pesq_snr', '100ep_100spk')).to(device)
+        # self.adv_perturb_snr_cosim_ep100_xector = torch.from_numpy(load_from_npy(self.xvector_path, 'snr', '100ep_100spk')).to(
+        #     device)
+        # self.adv_perturb_pesq_snr_cosim_ep100_xvector = torch.from_numpy(load_from_npy(self.xvector_path, 'pesq_snr', '100ep_100spk')).to(device)
 
+        self.adv_perturb_cosim_ep100_wavlm = torch.from_numpy(
+            load_from_npy(self.wavlm_path, 'cosim', '100ep_100spk')).to(
+            device)
         #
         # self._update_current_dir()
         # save_config_to_file(self.cfg, self.cfg['current_dir'])
@@ -261,37 +267,43 @@ class Evaluator:
         applied_random_perturb_uniform = utils.data_utils.apply_perturbation(img_batch,
                                                                              self.random_perturb_man_uniform, device)
 
-        applied_adv_perturb_cosim_ep100 = utils.data_utils.apply_perturbation(img_batch,
-                                                                                  self.adv_perturb_cosim_ep100,
-                                                                                  device)
-        applied_adv_perturb_snr_cosim_ep100 = utils.data_utils.apply_perturbation(img_batch,
-                                                                                      self.adv_perturb_snr_cosim_ep100,
-                                                                                      device)
-        applied_adv_perturb_pesq_snr_cosim_ep100 = utils.data_utils.apply_perturbation(img_batch,
-                                                                                      self.adv_perturb_pesq_snr_cosim_ep100,
-                                                                                      device)
+        applied_adv_perturb_cosim_ep100_wavlm = utils.data_utils.apply_perturbation(img_batch,
+                                                                              self.adv_perturb_cosim_ep100_wavlm,
+                                                                              device)
 
-        applied_adv_perturb_cosim_ep100_eps_com = utils.data_utils.apply_perturbation(img_batch,
-                                                                                      self.adv_perturb_cosim_ep100,
-                                                                                      device,
-                                                                                      eps=(3 / 2))
+        applied_adv_perturb_cosim_ep100_ecapa = utils.data_utils.apply_perturbation(img_batch,
+                                                                                  self.adv_perturb_cosim_ep100_ecapa,
+                                                                                  device)
+
+        # applied_adv_perturb_snr_cosim_ep100 = utils.data_utils.apply_perturbation(img_batch,
+        #                                                                               self.adv_perturb_snr_cosim_ep100,
+        #                                                                               device)
+        # applied_adv_perturb_pesq_snr_cosim_ep100 = utils.data_utils.apply_perturbation(img_batch,
+        #                                                                               self.adv_perturb_pesq_snr_cosim_ep100,
+        #                                                                               device)
+
+        # applied_adv_perturb_cosim_ep100_eps_com = utils.data_utils.apply_perturbation(img_batch,
+        #                                                                               self.adv_perturb_cosim_ep100,
+        #                                                                               device,
+        #                                                                               eps=(3 / 2))
 
         applied_adv_perturb_cosim_ep100_xvec = utils.data_utils.apply_perturbation(img_batch,
                                                                               self.adv_perturb_cosim_ep100_xvector,
                                                                               device)
-        applied_adv_perturb_snr_cosim_ep100_xvec = utils.data_utils.apply_perturbation(img_batch,
-                                                                                  self.adv_perturb_snr_cosim_ep100_xector,
-                                                                                  device)
-        applied_adv_perturb_pesq_snr_cosim_ep100_xvec = utils.data_utils.apply_perturbation(img_batch,
-                                                                                      self.adv_perturb_pesq_snr_cosim_ep100_xvector,
-                                                                                      device)
+
+        # applied_adv_perturb_snr_cosim_ep100_xvec = utils.data_utils.apply_perturbation(img_batch,
+        #                                                                           self.adv_perturb_snr_cosim_ep100_xector,
+        #                                                                           device)
+        # applied_adv_perturb_pesq_snr_cosim_ep100_xvec = utils.data_utils.apply_perturbation(img_batch,
+        #                                                                               self.adv_perturb_pesq_snr_cosim_ep100_xvector,
+        #                                                                               device)
 
 
 
-        applied_adv_perturb_cosim_ep100_eps_xvec = utils.data_utils.apply_perturbation(img_batch,
-                                                                                      self.adv_perturb_snr_cosim_ep100_xector,
-                                                                                      device,
-                                                                                      eps=(3 / 2))
+        # applied_adv_perturb_cosim_ep100_eps_xvec = utils.data_utils.apply_perturbation(img_batch,
+        #                                                                               self.adv_perturb_snr_cosim_ep100_xector,
+        #                                                                               device,
+        #                                                                               eps=(3 / 2))
 
 
 
@@ -316,8 +328,9 @@ class Evaluator:
 
 
         return applied_random_perturb_awgn, applied_random_perturb_uniform, \
-               applied_adv_perturb_cosim_ep100_xvec, applied_adv_perturb_snr_cosim_ep100_xvec, applied_adv_perturb_pesq_snr_cosim_ep100_xvec, \
-               applied_adv_perturb_cosim_ep100_eps_xvec
+               applied_adv_perturb_cosim_ep100_wavlm, applied_adv_perturb_cosim_ep100_ecapa, applied_adv_perturb_cosim_ep100_xvec
+               #applied_adv_perturb_cosim_ep100_xvec, applied_adv_perturb_snr_cosim_ep100_xvec, applied_adv_perturb_pesq_snr_cosim_ep100_xvec, \
+               #applied_adv_perturb_cosim_ep100_eps_xvec
 
                #applied_adv_perturb_cosim_ep100_xvec,applied_adv_perturb_snr_cosim_ep100_xvec,applied_adv_perturb_pesq_snr_cosim_ep100_xvec,\
                #applied_adv_perturb_cosim_ep100_eps_com
@@ -346,7 +359,9 @@ class Evaluator:
             # batch_snrs[perturb_name].append(calculator_snr_per_signal(img_batch, img_batch_applied_mask))
             if perturb_name not in batch_snrs.keys():
                 batch_snrs[perturb_name] = []
-            batch_snrs[perturb_name].append(round(calculator_snr_direct(img_batch, img_batch_applied_mask),5))
+            # batch_snrs[perturb_name].append(round(calculator_snr_direct(img_batch, img_batch_applied_mask),5))
+            batch_snrs[perturb_name].append(round(calculate_snr_github_direct(img_batch_applied_mask.cpu().detach().numpy(),
+                                                  img_batch.cpu().detach().numpy()), 5))
 
         return batch_snrs
 

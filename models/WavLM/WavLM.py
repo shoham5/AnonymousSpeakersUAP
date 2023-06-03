@@ -329,6 +329,8 @@ class WavLM(nn.Module):
         output_layer: Optional[int] = None,
         ret_layer_results: bool = False,
     ):
+        if source.dtype != torch.float32:
+            source = source.float()
         source = source.to(self.mask_emb.device) # i used the mask_emb because it is the only Parameter tensor type in the model
         feature, _ = self.extract_features(source, padding_mask, mask, ret_conv, output_layer, ret_layer_results)
         return feature.mean(dim=1).unsqueeze(1)

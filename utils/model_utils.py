@@ -30,13 +30,22 @@ def get_speaker_model_by_name(embedder_name, cfg, device):
     elif embedder_name == 'spkrec-xvect-voxceleb':
         model = EncoderClassifier.from_hparams(cfg['files_path'])
         model.device = device
-        model.eval()
-        model.to(device)
+        # model.eval()
+        # model.to(device)
     # elif embedder_name == 'wavlm':
     #     model = WavLm(cfg['device'])
         # wavlm = WavLm()
         # model = wavlm.get_model()
         # model.device = device
+    elif embedder_name == 'wavlm':
+        checkpoint = torch.load(cfg['files_path'])
+        cfg_model = WavLMConfig(checkpoint['cfg'])
+        model = WavLM(cfg_model)
+        model.load_state_dict(checkpoint['model'])
+        # model = model.double()
+        # model.eval()
+        # model.to(cfg['device'])
+
     else:
         raise Exception('Model type {} not found'.format(embedder_name))
 

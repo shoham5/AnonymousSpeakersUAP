@@ -31,7 +31,7 @@ class BaseConfiguration:
         # Train dataset options
         self.is_real_person = False
         self.train_dataset_name = 'LIBRIALL'
-        self.test_data_set_name = "LIBRI-TEST"
+        self.test_data_set_name = 'LIBRI-CLOSE-SET-TEST'# 'LIBRI-TEST'#  'LIBRI-CLOSE-SET-TEST'# "LIBRI-TEST"
         self._set_dataset(self.test_data_set_name)
 
         # self.train_img_dir = os.path.join('..', 'datasets', self.train_dataset_name)
@@ -68,7 +68,7 @@ class BaseConfiguration:
         # Embedder options
         self.train_embedder_names = ['spkrec-ecapa-voxceleb' ]
         self.test_embedder_source = ['SpeechBrain']
-        self.test_embedder_names = ['spkrec-xvect-voxceleb'] #['spkrec-ecapa-voxceleb']#, 'spkrec-xvect-voxceleb']
+        self.test_embedder_names = ['wavlm' ,'spkrec-ecapa-voxceleb', 'spkrec-xvect-voxceleb'] # ['spkrec-xvect-voxceleb'] #['spkrec-ecapa-voxceleb']#, 'spkrec-xvect-voxceleb']
         self.test_embedder_classes = {}
         print(self.test_embedder_names)
         # self.datasets_name = ['LIBRIALL']

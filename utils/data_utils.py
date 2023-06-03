@@ -964,18 +964,19 @@ def create_adversarial_files_using_perturbation(save_files = True):
         os.makedirs(os.path.join(output_adversarial , "adversarial"))
 
 
-    exper = "../data/19_5_2023_results/uap_perturbation_wavlm/"
+    exper = "../data/19_5_2023_results/uap_perturbation_ecapa/"
     # ecapa, xvector, wavlm
     training_path = 'data/LIBRI/d1'
     # eval_path = "../data/libri_train-clean-100/"
     eval_path = "../data/libri-test-clean"
-    uap_perturb = load_from_npy(exper,"l2_eps1000", "uap_ep100_spk100")
+    uap_perturb = load_from_npy(exper,"old", "uap_ep100_spk100")
     all_spkrs = os.listdir(eval_path)
     snr_values_mean = []
     snr_dict = {}
     rndr_spkers =np.random.choice(all_spkrs,num_eval_spks)
     for spk in rndr_spkers:
         snr_dict[spk] = []
+        np.random.seed(42) #
         signals_to_eval = np.random.choice(os.listdir(os.path.join(eval_path,spk)), num_eval_spks)
         curr_spk_snr = []
         for signal_eval in signals_to_eval:
@@ -1039,3 +1040,4 @@ if __name__ == '__main__':
     # train_features, train_labels = next(iter(train_dataloader))
     # print(f"Feature batch shape: {train_features.size()}")
     # print(f"Labels batch shape: {train_labels.size()}")
+    print("finish")
