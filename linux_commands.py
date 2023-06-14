@@ -4,8 +4,9 @@ import subprocess
 from pathlib import Path
 import sys
 import numpy as np
+import random
 
-
+import pandas as pd
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[1]
@@ -144,6 +145,109 @@ def split_voxceleb1_to_train_test(src_path="data/voxceleb1", dest_path ="data/tr
         # write_json(f'{Path(src_path).parent}/{dest_path}/{filename}/train_files', train_files)
         # write_json(f'{Path(src_path).parent}/data_lists/{filename}/test_files', test_files)
 
+def text_to_csv(src_path="data/train_test-voxceleb1", txt_path=""):
+    df = pd.read_fwf(f'{src_path}/{txt_path}.txt')
+    df.to_csv(f'{src_path}/{txt_path}.csv')
+
+def split_files_by_gender(src_path="data/train_test-voxceleb1/train", dest_path="data/sampels_test-voxceleb1", meta_data_file=""):
+
+    # path_obj = Path(src_path)
+    # filename = path_obj.stem
+    speaker_id_list = []
+    gender_list = []
+    if meta_data_file.endswith(".csv"):
+        data_file = pd.read_csv(meta_data_file)
+# # ID Gender
+    # Path(f'{path_obj.parent}/data_lists').mkdir(parents=True, exist_ok=True)
+    else:
+        data_file = pd.read_fwf(meta_data_file)
+        # with open(os.path.join(dest_path, 'meta_data.txt'), 'r') as f:
+        #     all_lines = f.readlines()
+            # line = f.readline().split()
+            # speaker_id_list.append(line[1])
+            # gender_list.append(line[-1])
+
+
+    id_dir_to_train = os.listdir(src_path)
+
+
+    # id_genders_list = [l.split()[-1] for l in all_lines]
+    #
+    # # train_files = defaultdict()
+    # # validete_files = defaultdict()
+    #
+    # # path_obj = Path(src_path)
+    # # filename = path_obj.stem
+    #
+    # # Path(f'{path_obj.parent}/data_lists').mkdir(parents=True, exist_ok=True)
+    #
+    # # id_dir_to_train = os.listdir(src_path)
+    #
+    # # train_files = defaultdict()
+    # # validete_files = defaultdict()
+    #
+    # for speaker_id in tqdm(id_dir_to_train, desc="Speaker_id:"):
+    #
+    #     if not os.path.exists(Path(f'{dest_path}/train/{speaker_id}')):
+    #         os.makedirs(Path(f'{dest_path}/train/{speaker_id}'))
+    #         os.makedirs(Path(f'{dest_path}/test/{speaker_id}'))
+    #     all_speaker_path = [f for f in glob.glob(f"{src_path}/{speaker_id}/*/*.wav")]
+    #     x_train, x_test = train_test_split(all_speaker_path, test_size=0.2,
+    #                                        shuffle=True)
+    #     print("cwd  :", os.getcwd())
+    #     for uttr in x_train:
+    #         p = subprocess.Popen(['cp', f'{uttr}',
+    #                               f"{dest_path}/train/{speaker_id}/{uttr.split('/')[-2]}_{Path(uttr).name}"])  # , cwd=os.path.join(src_path, speaker_id))
+    #         p.wait()
+    #
+    #     for test_uttr in x_test:
+    #         p = subprocess.Popen(['cp', f'{test_uttr}',
+    #                               f"{dest_path}/test/{speaker_id}/{test_uttr.split('/')[-2]}_{Path(test_uttr).name}"])  # , cwd=os.path.join(src_path, speaker_id))
+    #         p.wait()
+    # all_files = []
+    # for speaker_id in tqdm(id_dir_to_train, desc="Speaker_id:"):
+    #     if spea
+    #     all_speaker_paths = [os.path.relpath(f, Path(src_path).parent) for f in
+    #                          glob.glob(f"{src_path}/{speaker_id}/*.wav")]
+    #     all_files.extend(all_speaker_paths)
+    #
+    # random.shuffle(all_files)
+    # # print(all_files)
+    # with open(os.path.join(dest_path, 'train.scp'), 'w') as f:
+    #     for f_path in all_files:
+    #         f.write(f'{f_path}\n')
+
+
+def create_scp_file_to_train_test(src_path="data/train_test-voxceleb1/train", dest_path ="data/sampels_test-voxceleb1"):
+        # path_obj = Path(src_path)
+        # filename = path_obj.stem
+
+        # Path(f'{path_obj.parent}/data_lists').mkdir(parents=True, exist_ok=True)
+
+        id_dir_to_train = os.listdir(src_path)
+
+        # train_files = defaultdict()
+        # validete_files = defaultdict()
+        all_files = []
+        for speaker_id in tqdm(id_dir_to_train, desc="Speaker_id:"):
+            all_speaker_paths = [os.path.relpath(f, Path(src_path).parent) for f in glob.glob(f"{src_path}/{speaker_id}/*.wav")]
+            all_files.extend(all_speaker_paths)
+
+        random.shuffle(all_files)
+        # print(all_files)
+        with open(os.path.join(dest_path,'train.scp'),'w') as f:
+            for f_path in all_files:
+                f.write(f'{f_path}\n')
+                # f.write("\n")
+
+
+            # $$$ change to true in eval
+            # train_files[speaker_id] = x_train
+            # test_files[speaker_id] = x_test
+
+        # write_json(f'{Path(src_path).parent}/{dest_path}/{filename}/train_files', train_files)
+        # write_json(f'{Path(src_path).parent}/data_lists/{filename}/test_files', test_files)
+
 
 def get_subset_speakers_from_dataset(src_path="data/voxceleb1", dest_path="data/sampels_test-voxceleb1", spks_num=100):
 
@@ -209,7 +313,7 @@ def run_kill_command():
 import torch
 if __name__ == '__main__':
     # get_subset_speakers_from_dataset()
-
+    create_scp_file_to_train_test()
     # split_voxceleb1_to_train_test()
     # run_nvidia_smi_command()
     # run_kill_command()

@@ -16,3 +16,9 @@ LIBRI-CLOSE-SET-TRAIN:
 LIBRI-CLOSE-SET-TEST:
   dataset_name: 'LIBRI'
   root_path: 'data/train_test-librispeech_train-100/test/'
+VOXCELEB1-CLOSE-SET-TRAIN:
+  dataset_name: 'VOX1'
+  root_path: 'data/train_test-voxceleb1/train/'
+VOXCELEB1-CLOSE-SET-TEST:
+  dataset_name: 'VOX1'
+  root_path: 'data/train_test-voxceleb1/test/'

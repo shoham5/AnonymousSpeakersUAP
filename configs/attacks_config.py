@@ -28,31 +28,33 @@ class BaseConfig:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model_source = 'SpeechBrain'  # see configs/model_config.yaml for other options
-        model_name = "titanet"# "spkrec-ecapa-voxceleb" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
+        model_name = "wavlm"# "spkrec-ecapa-voxceleb" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
 
         # 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
 
         print("model_name: ",model_name)
         self._set_model(model_source, model_name)
 
-        dataset_name = 'LIBRI-CLOSE-SET-TRAIN' # 'LIBRIALL'
+        dataset_name = 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'#'LIBRI-CLOSE-SET-TRAIN' # 'LIBRIALL'
+        print("dataset_name: ", dataset_name)
         self._set_dataset(dataset_name)
 
         # # TODO: split to two classes. one for eval, other for attack. delete similarity from BaseConfig
         # self.similarity_params = {'dim': 2}
         # similarity_func_name = 'CosineSimilarity'
         # self._set_similarity_one_func(similarity_func_name)
-        self.loss_func_params = {
-            'CosineSimilarity': {'dim': 0},
-        }
-        self._set_losses(self.loss_func_params)
 
-        self.loss_params = {
-            'weights': [1]
-        }
+        # self.loss_func_params = {
+        #     'CosineSimilarity': {'dim': 0},
+        # }
+        # self._set_losses(self.loss_func_params)
+        #
+        # self.loss_params = {
+        #     'weights': [1]
+        # }
 
         self.loss_func_params = {
-            'CosineSimilarity': {'dim': 0},
+            'CosineSimilarity': {'dim': 1},
         }
         self._set_losses(self.loss_func_params)
 

@@ -9,4 +9,4 @@ kaldi-xvect:
 wavlm:
   files_path: 'models/WavLM/WavLM-Base.pt'
 titanet:
-  files_path: 'models/Titanet/titanet-l.nemo'
+  files_path: 'models/Titanet/titanet -l.nemo'

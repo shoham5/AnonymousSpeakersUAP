@@ -82,13 +82,13 @@ class BasicLibriSpeechDataset(Dataset):
         return wavs
 
 
-#TODO: changed from .wav to .flac to support libri-train-100
+#TODO: changed from .wav to .flac ('**/*.flac') to support libri-train-100, change to
 def get_nested_dataset_files(img_dir, labels):
     files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.flac'), recursive=True) for lab in labels]
     return files_in_folder
 
 # TODO: train index depend on num_of_samples which depend on samples to create embbedings from. changed to fit 70% train
-def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.8):
+def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.3):
     dataset_nested_files = get_nested_dataset_files(img_dir, labels)
 
     nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
@@ -100,12 +100,12 @@ def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.8):
     train_indices = np.concatenate([np.random.choice(arr_idx, size=math.floor(len(arr_idx) * split_rate), replace=False) for arr_idx in nested_indices_continuous])
 
     val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices))
-
+    small_val_indices = list(np.random.choice(val_indices, size=math.floor(len(val_indices) * split_rate),replace=False))
     # train_indices_ravel = np.array([np.random.choice(arr_idx, size=num_of_samples, replace=False) for arr_idx in
     #                           nested_indices_continuous]).ravel()
     # val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices_ravel))
 
-    return train_indices, val_indices
+    return train_indices, small_val_indices # val_indices
 
 
 @torch.no_grad()
@@ -169,6 +169,9 @@ def get_person_embedding(config, loader, person_ids, embedders, device, include_
 def get_dataset(dataset_name):
     if dataset_name == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL':
         return BasicLibriSpeechDataset
+    elif dataset_name == 'VOX1':
+        return BasicLibriSpeechDataset
+
 
 
 def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):

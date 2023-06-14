@@ -101,85 +101,63 @@ class UniversalAttack:
             running_loss = 0.0
             running_snr = 0.0
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=len(self.train_loader), ncols=150)
-            prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}'
-            # if epoch % change_eps_projection ==0 and epoch != 0:
-            #     self.eps_projection *= 0.36 # 0.7
-            #     print("\n####### change eps to #######: ", self.eps_projection )
+            # prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}'
+            prog_bar_desc = 'Batch Loss: {:.6}'  # , SNR: {:.6}'
+
 
             for i_batch, (cropped_signal_batch, person_ids_batch) in progress_bar:
                 loss, running_loss, adv_cropped_signal_batch = self.forward_step(adv_pert, cropped_signal_batch, person_ids_batch, running_loss)
 
-                pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
-                print("\npesq mean: ", pesq_loss)
-                snr_loss = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
-                                                           cropped_signal_batch.cpu().detach().numpy())
-
-                # snr_loss = calculator_snr_direct(cropped_signal_batch, adv_cropped_signal_batch,
-                #                                  device=self.cfg['device'])
-
-                print("snr : ", snr_loss)
                 print("cosim loss: ", loss.item())
 
-                # snr_git_loss = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
-                #                                            cropped_signal_batch.cpu().detach().numpy())
-                # print("snr_git : ", snr_git_loss)
+
+
                 ###################################################################################
-                temp_loss = ((100 - snr_loss) / 100)  # + (factor_snr/60)
-                print("snr loss : ", temp_loss)
-                pesq_temp_loss = (4.5 - pesq_loss) / 4.5
-                print("pesq loss : ", pesq_temp_loss)
 
-                # if self.is_first: # i_batch is 0:
-                #     snr_loss = 46.5
-                #     temp_loss = ((60 - snr_loss) / 60)
-                #     self.is_first = False
+                #
+                # pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
+                # print("\npesq mean: ", pesq_loss)
+                # snr_loss = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
+                #                                            cropped_signal_batch.cpu().detach().numpy())
+                # print("snr : ", snr_loss)
 
-                if loss_config == "snr":
-                    loss.data += temp_loss
-                elif loss_config == "pesq_snr":
-                    loss.data += (0.5 * pesq_temp_loss)  # using pesq + snr
-                    loss.data += (0.5 * temp_loss)  # using pesq + snr
+                # temp_loss = ((100 - snr_loss) / 100)  # + (factor_snr/60)
+                # print("snr loss : ", temp_loss)
+                # pesq_temp_loss = (4.5 - pesq_loss) / 4.5
+                # print("pesq loss : ", pesq_temp_loss)
 
-                    # loss.data += temp_loss
-
-
-                self.loss_train_values.append(str(round(loss.item(), 5)))
-                self.snr_train_values.append(str(round(snr_loss, 5)))
-                self.pesq_train_values.append(str(round(pesq_loss, 5)))
+                # if loss_config == "snr":
+                #     loss.data += temp_loss
+                # elif loss_config == "pesq_snr":
+                #     loss.data += (0.5 * pesq_temp_loss)  # using pesq + snr
+                #     loss.data += (0.5 * temp_loss)  # using pesq + snr
                 #
 
+                # self.snr_train_values.append(str(round(snr_loss, 5)))
+                # self.pesq_train_values.append(str(round(pesq_loss, 5)))
+                # running_snr += snr_loss
 
+                ###################################################################################
+
+                self.loss_train_values.append(str(round(loss.item(), 5)))
                 print("loss after: ", loss.item())
-                running_snr += snr_loss
 
-                # print("log loss: " ,-1 * math.log(loss.data, 2))
-                # loss.data = torch.tensor([-1]).to(device) * math.log(loss.data, 2)
-                # # print("log loss update : ", loss.data)
 ########################################################################################
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+
                 # projection - attack wise - self.projection()
                 adv_pert.data = self.projection(adv_pert)
+
                 # clip - stay in audio domain  - adv_pert.clamp(-1, 1)
                 adv_pert.data.clamp(-1, 1)
-                # adv_pert.clamp(-2 ** 15, 2 ** 15 - 1)
-
-                #adv_snr = calculator_snr_direct(src_array=cropped_signal_batch, adv_array=self.apply_perturbation(cropped_signal_batch, adv_pert, clip=False).to('cpu'))
-                # adv_snr = snr_loss
-                    # calculator_snr_direct(src_array=cropped_signal_batch, adv_array=adv_cropped_signal_batch, device=self.cfg['device'])
-                # print("loss after adv snr: ", loss.item())
 
 
+                progress_bar.set_postfix_str(prog_bar_desc.format(running_loss / (i_batch + 1)))
+                                                                  # ,running_snr / (i_batch + 1)))
 
-                progress_bar.set_postfix_str(prog_bar_desc.format(running_loss / (i_batch + 1),
-                                                                  running_snr / (i_batch + 1)))
 
-            # if epoch != 0 :
-            #     adv_pert.data = 0.6 * adv_pert.data + 0.4 * temp_adv_pert
-            #     # adv_pert.data = self.projection(adv_pert)
-            # temp_adv_pert = adv_pert.data
-            # if epoch % 7 ==0 and i_batch % 25 ==0:
 
 
             val_loss = self.evaluate(adv_pert)
@@ -316,32 +294,31 @@ class UniversalAttack:
         similarity_values = []
         similarity_snr = []
         progress_bar = tqdm(enumerate(self.val_loader), desc=f'Eval', total=len(self.val_loader), ncols=150)
-        prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}, SIMS: {:.6}'
+        prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}' #, SIMS: {:.6}'
         for i_batch, (cropped_signal_batch, person_ids_batch) in progress_bar:
             loss, running_loss, adv_cropped_signal_batch = self.forward_step_eval(adv_pert, cropped_signal_batch, person_ids_batch, running_loss)
             adv_snr = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
                                                   cropped_signal_batch.cpu().detach().numpy())
-                                                   # self.apply_perturbation(cropped_signal_batch, adv_pert, clip=False).cpu().detach().numpy())# cropped_signal_batch.cpu().detach().numpy())
-            # adv_snr = calculator_snr_direct(src_array=cropped_signal_batch,adv_array=self.apply_perturbation(cropped_signal_batch, adv_pert, clip=False))
-            # adv_snr = calculator_snr_direct(src_array=cropped_signal_batch, adv_array=adv_cropped_signal_batch)
 
-            temp_emb = self.model.encode_batch(cropped_signal_batch + adv_pert).cpu() # TODO: can be change using adv_cropped_signal_batch?
-            temp_labels = torch.index_select(curr_speakers, index=person_ids_batch, dim=0).cpu()
-            adv_sims = sims(temp_emb, temp_labels).mean()
+            # temp_emb = self.model.encode_batch(cropped_signal_batch + adv_pert).cpu() # TODO: can be change using adv_cropped_signal_batch?
+            # temp_labels = torch.index_select(curr_speakers, index=person_ids_batch, dim=0).cpu()
+            # adv_sims = sims(temp_emb, temp_labels).mean()
             print("\nadv_snr: ",adv_snr)
             pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
             print("pesq: ", pesq_loss)
+
             # print("adv_snr TYPE:" , type(adv_snr))
-            self.similarity_eval_values.append(str(round(adv_sims.item(), 5)))
+            # self.similarity_eval_values.append(str(round(adv_sims.item(), 5)))
+
             self.loss_eval_values.append(str(round(loss.item(), 5)))
             self.snr_eval_values.append(str(round(adv_snr, 5)))
             self.pesq_eval_values.append(str(round(pesq_loss, 5)))
-            print("sims: ", adv_sims)
+            print("sims: ", str(round(loss.item(), 5)))
             running_snr += adv_snr
-            running_sims += adv_sims
+            running_sims += round(loss.item(), 5)
             progress_bar.set_postfix_str(prog_bar_desc.format(running_loss / (i_batch + 1),
-                                                              running_snr / (i_batch + 1),
-                                                              running_sims / (i_batch + 1)))
+                                                              running_snr / (i_batch + 1)))
+                                                              # ,running_sims / (i_batch + 1)))
 
         # self.similarity_values.append(similarity_values)
         return running_loss / len(self.val_loader)
