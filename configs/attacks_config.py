@@ -28,7 +28,7 @@ class BaseConfig:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model_source = 'SpeechBrain'  # see configs/model_config.yaml for other options
-        model_name = "wavlm"# "spkrec-ecapa-voxceleb" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
+        model_name = "hubert" # hubert "spkrec-ecapa-voxceleb" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
 
         # 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
 
