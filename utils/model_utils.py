@@ -1,6 +1,7 @@
 from speechbrain.pretrained import EncoderClassifier
 from models.wavlm_base import Titanet
 from models.WavLM.WavLM import WavLM, WavLMConfig
+from models.hubert import Hubert
 from pathlib import Path
 import os
 import sys
@@ -98,6 +99,10 @@ def get_speaker_model(cfg):
         # cfg_model = WavLMConfig(checkpoint['cfg'])
         # model = WavLM(cfg_model)
         # model.load_state_dict(checkpoint['model'])
+    elif cfg['model_name'] == 'hubert':
+        model = Hubert()
+        model.eval()
+        model.to(cfg['device'])
     else:
         raise Exception('Model type {} not found'.format(cfg['model_type']))
 
