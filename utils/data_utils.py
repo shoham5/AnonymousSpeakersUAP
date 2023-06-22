@@ -82,13 +82,13 @@ class BasicLibriSpeechDataset(Dataset):
         return wavs
 
 
-#TODO: changed from .wav to .flac ('**/*.flac') to support libri-train-100, change to
+#TODO: changed from .wav to .flac ('**/*.') to support libri-train-100, change to
 def get_nested_dataset_files(img_dir, labels):
     files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.flac'), recursive=True) for lab in labels]
     return files_in_folder
 
 # TODO: train index depend on num_of_samples which depend on samples to create embbedings from. changed to fit 70% train
-def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.3):
+def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.8):
     dataset_nested_files = get_nested_dataset_files(img_dir, labels)
 
     nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
@@ -167,9 +167,9 @@ def get_person_embedding(config, loader, person_ids, embedders, device, include_
 
 
 def get_dataset(dataset_name):
-    if dataset_name == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL':
+    if 'LIBRI' in dataset_name:# == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL':
         return BasicLibriSpeechDataset
-    elif dataset_name == 'VOX1':
+    elif 'VOX' in dataset_name:# == 'VOX1':
         return BasicLibriSpeechDataset
 
 

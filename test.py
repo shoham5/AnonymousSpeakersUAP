@@ -67,6 +67,8 @@ class Evaluator:
                                                                                device, include_others=False)
 
 
+
+        print("emb_loaders.items(): ", emb_loaders.items() )
         # self.random_mask_t = utils.load_mask(self.config, self.config.random_mask_path, device)  # $$$ add perturbation according to previus known
         # self.perturbations = load_perturbations_from_files()
         self.sims2 = get_instance(self.config.similarity_config_one['module_name'], self.config.similarity_config_one['class_name'])(**self.config.similarity_params)
@@ -83,7 +85,7 @@ class Evaluator:
         Path(self.config.current_dir).mkdir(parents=True, exist_ok=True)
         # save_config_to_file(self.config, self.config.current_dir)
         utils.general.save_class_to_file(self.config, self.config.current_dir)
-        base_path = os.path.join('.', 'data',"uap_perturbation","MAY_UAP")
+        base_path = os.path.join('.', 'data',"uap_perturbation","JUN_UAP_VOX")
         # Test options
         # self.masks_path = os.path.join('.', 'data', 'uap_perturbation_ecapa')  # change to perturb
         self.xvector_path = os.path.join(base_path, 'xvector')  # change to perturb
@@ -192,6 +194,8 @@ class Evaluator:
                 df_snr = pd.DataFrame(columns=self.mask_names[1:])
 
                 for img_batch, cls_id in tqdm(loader):
+                    if len(img_batch.shape) == 1:
+                        continue
                     img_batch = img_batch.to(device)
                     cls_id = cls_id.to(device).type(torch.int32)
 
@@ -384,9 +388,11 @@ class Evaluator:
             for emb in all_embeddings[emb_name]:
                 # sims_torch.append(simcosine(torch.from_numpy(emb), torch.from_numpy(target_embedding)))
                 # self.sims2(torch.from_numpy(emb).unsqueeze(0), torch.from_numpy(target_embedding).unsqueeze(0))
-                # if len(emb.shape) == 1:
-                #     emb = np.expand_dims(emb, axis=0).copy()
-                #     print("in emb.shape")
+                if len(emb.shape) == 1:
+                    emb = np.expand_dims(emb, axis=0).copy()
+                    if len(target_embedding.shape) == 1:
+                        target_embedding = np.expand_dims(target_embedding, axis=0).copy()
+                    print(f"in if emb.shape : {emb.shape} target_embedding: {target_embedding.shape}" )
                 sims.append((np.diag(cosine_similarity(emb, target_embedding)) +1) / 2)
             self.write_similarities_to_disk(sims, cls_id, sim_type=target_type, emb_name=emb_name, dataset_name=dataset_name)
 

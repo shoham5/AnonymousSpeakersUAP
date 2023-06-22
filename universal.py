@@ -296,6 +296,7 @@ class UniversalAttack:
         progress_bar = tqdm(enumerate(self.val_loader), desc=f'Eval', total=len(self.val_loader), ncols=150)
         prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}' #, SIMS: {:.6}'
         for i_batch, (cropped_signal_batch, person_ids_batch) in progress_bar:
+            if cropped_signal_batch.shape[0] != 64 : continue #  batch_size
             loss, running_loss, adv_cropped_signal_batch = self.forward_step_eval(adv_pert, cropped_signal_batch, person_ids_batch, running_loss)
             adv_snr = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
                                                   cropped_signal_batch.cpu().detach().numpy())
@@ -304,15 +305,16 @@ class UniversalAttack:
             # temp_labels = torch.index_select(curr_speakers, index=person_ids_batch, dim=0).cpu()
             # adv_sims = sims(temp_emb, temp_labels).mean()
             print("\nadv_snr: ",adv_snr)
-            pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
-            print("pesq: ", pesq_loss)
+
+            # pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
+            # print("pesq: ", pesq_loss)
 
             # print("adv_snr TYPE:" , type(adv_snr))
             # self.similarity_eval_values.append(str(round(adv_sims.item(), 5)))
 
             self.loss_eval_values.append(str(round(loss.item(), 5)))
             self.snr_eval_values.append(str(round(adv_snr, 5)))
-            self.pesq_eval_values.append(str(round(pesq_loss, 5)))
+            # self.pesq_eval_values.append(str(round(pesq_loss, 5)))
             print("sims: ", str(round(loss.item(), 5)))
             running_snr += adv_snr
             running_sims += round(loss.item(), 5)

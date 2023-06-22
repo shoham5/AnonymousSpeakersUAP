@@ -261,6 +261,28 @@ def get_subset_speakers_from_dataset(src_path="data/voxceleb1", dest_path="data/
         p = subprocess.Popen(['cp', '-R', f'{os.path.join(src_path,speaker_id)}', f"{dest_path}/{speaker_id}"])
         p.wait()
 
+def flat_dataset_dirs(src_path="data/voxceleb1_test_open_set", dest_path="data/voxceleb1_test_open-set", spks_num=100):
+
+    if not os.path.exists(Path(f'{dest_path}')):
+        os.makedirs(Path(f'{dest_path}'))
+    speakers_dir = os.listdir(src_path)
+
+    for speaker_id in tqdm(speakers_dir, desc="Speaker_id:"):
+        if not os.path.exists(Path(f'{dest_path}/{speaker_id}')):
+            os.makedirs(Path(f'{dest_path}/{speaker_id}'))
+        all_speaker_path = [f for f in glob.glob(f"{src_path}/{speaker_id}/*/*.wav")]
+        print("cwd  :", os.getcwd())
+        for uttr in all_speaker_path:
+            p = subprocess.Popen(['cp', f'{uttr}',
+                                  f"{dest_path}/{speaker_id}/{uttr.split('/')[-2]}_{Path(uttr).name}"])  # , cwd=os.path.join(src_path, speaker_id))
+            p.wait()
+
+    # np.random.seed(42)
+    # random_speakers = np.random.choice(speakers_dir, spks_num)
+    # for speaker_id in tqdm(random_speakers, desc="Speaker_id:"):
+    #     p = subprocess.Popen(['cp', '-R', f'{os.path.join(src_path,speaker_id)}', f"{dest_path}/{speaker_id}"])
+    #     p.wait()
+
 def main_nvidia():
 # https://support.huaweicloud.com/intl/en-us/modelarts_faq/modelarts_05_0374.html
     import nvidia_smi
@@ -313,8 +335,10 @@ def run_kill_command():
 import torch
 if __name__ == '__main__':
     # get_subset_speakers_from_dataset()
-    create_scp_file_to_train_test()
+    # create_scp_file_to_train_test()
+    flat_dataset_dirs()
     # split_voxceleb1_to_train_test()
+
     # run_nvidia_smi_command()
     # run_kill_command()
     # torch.cuda.empty_cache()

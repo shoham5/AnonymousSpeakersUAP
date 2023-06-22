@@ -31,9 +31,11 @@ class BaseConfiguration:
         # Train dataset options
         self.is_real_person = False
         self.train_dataset_name = 'LIBRIALL'
-        self.test_data_set_name = 'LIBRI-CLOSE-SET-TEST'# 'LIBRI-TEST'#  'LIBRI-CLOSE-SET-TEST'# "LIBRI-TEST"
+      #################################################
+        # TODO: CHECK DATASET
+        self.test_data_set_name = 'LIBRI-CLOSE-SET-TEST' # "VOXCELEB1-CLOSE-SET-TEST" # "VOXCELEB1-CLOSE-SET-TEST" #'LIBRI-TEST' # 'LIBRI-CLOSE-SET-TEST'  #'LIBRI-TEST' # 'LIBRI-CLOSE-SET-TEST'# 'LIBRI-TEST'#  'LIBRI-CLOSE-SET-TEST'# "LIBRI-TEST"
         self._set_dataset(self.test_data_set_name)
-
+#######################################################
         # self.train_img_dir = os.path.join('..', 'datasets', self.train_dataset_name)
         # self.train_number_of_people = 100
         # self.celeb_lab = os.listdir(self.train_img_dir)[:self.train_number_of_people]
@@ -220,7 +222,7 @@ class UniversalAttackEval(BaseConfiguration):
 
         # Test dataset options
         self.test_num_of_images_for_emb = 5
-        self.test_dataset_names = ['LIBRI-TEST']
+        self.test_dataset_names = ['LIBRI-CLOSE-SET-TEST',"LIBRI-TEST" ]#"VOXCELEB1-CLOSE-SET-TEST"] #"VOXCELEB1-OPEN-SET-TEST"]#, "VOXCELEB1-CLOSE-SET-TEST", "LIBRI-TEST",'LIBRI-CLOSE-SET-TEST'] #'LIBRI-TEST'] # , 'LIBRI-CLOSE-SET-TEST']
         self.test_img_dir = {name: self.set_dataset(name) for name in self.test_dataset_names}
         # self.test_img_dir = {name: os.path.join('..', 'datasets', name) for name in self.test_dataset_names}
         self.test_number_of_people = 40

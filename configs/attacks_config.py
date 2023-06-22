@@ -28,14 +28,14 @@ class BaseConfig:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model_source = 'SpeechBrain'  # see configs/model_config.yaml for other options
-        model_name = "wavlm"# "spkrec-ecapa-voxceleb" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
+        model_name = "spkrec-ecapa-voxceleb"  # "spkrec-xvect-voxceleb" # "wavlm" # "spkrec-ecapa-voxceleb" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
 
         # 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
 
         print("model_name: ",model_name)
         self._set_model(model_source, model_name)
 
-        dataset_name = 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'#'LIBRI-CLOSE-SET-TRAIN' # 'LIBRIALL'
+        dataset_name ='LIBRI-CLOSE-SET-TRAIN'# 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'# 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'#'LIBRI-CLOSE-SET-TRAIN' # 'LIBRIALL'
         print("dataset_name: ", dataset_name)
         self._set_dataset(dataset_name)
 

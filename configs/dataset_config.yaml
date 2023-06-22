@@ -22,3 +22,8 @@ VOXCELEB1-CLOSE-SET-TRAIN:
 VOXCELEB1-CLOSE-SET-TEST:
   dataset_name: 'VOX1'
   root_path: 'data/train_test-voxceleb1/test/'
+
+VOXCELEB1-OPEN-SET-TEST:
+  dataset_name: 'VOX1'
+  root_path: 'data/voxceleb1_test_open-set/'
+
