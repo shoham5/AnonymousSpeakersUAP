@@ -14,6 +14,7 @@ import matplotlib as plt
 import seaborn as sns
 import scipy.io.wavfile as wav
 from pathlib import Path
+from torchmetrics import SignalNoiseRatio
 
 
 def init_seeds(seed=0):
@@ -300,6 +301,33 @@ def calculate_snr_github_direct(pred: np.array, label: np.array): # pred = adver
         # print('sigma_e_square:', sigma_e_square)
         # print(sigma_s_square/max(sigma_e_square, 1e-9))
         snr = 10 * np.log10((sigma_s_square / np.maximum(sigma_e_square, 1e-9)))
+    return snr
+
+
+def calculate_snr_github_direct_pkg(pred, label): # pred = adversarial, label = source data
+    # assert pred.shape == label.shape, "the shape of pred and label must be the same"
+    snr_func =  SignalNoiseRatio()
+    # print("wait snr ")
+    snr = snr_func(pred, label)
+    # pred, label = (pred + 1) / 2, (label + 1) / 2
+    # if len(pred.shape) > 1:
+    #     sigma_s_square = np.mean(label * label, axis=1)
+    #     sigma_e_square = np.mean((pred - label) * (pred - label), axis=1)
+    #
+    #     # sigma_s_square = np.mean(label.numpy() * label.numpy(), axis=1)
+    #     # np.mean((pred.cpu().detach().numpy() - label.cpu().detach().numpy()) * (
+    #     #             pred.cpu().detach().numpy() - label.cpu().detach().numpy()), axis=1)
+    #
+    #     # snr = 10 * np.log10((sigma_s_square / max(sigma_e_square, 1e-9))) # signal / noise
+    #     snr = 10 * np.log10((sigma_s_square / np.maximum(sigma_e_square, 1e-9)))
+    #     snr = snr.mean()
+    # else:
+    #     sigma_s_square = np.mean(label * label)
+    #     # print('sigma_s_square:', sigma_s_square)
+    #     sigma_e_square = np.mean((pred - label) * (pred - label))
+    #     # print('sigma_e_square:', sigma_e_square)
+    #     # print(sigma_s_square/max(sigma_e_square, 1e-9))
+    #     snr = 10 * np.log10((sigma_s_square / np.maximum(sigma_e_square, 1e-9)))
     return snr
 
 

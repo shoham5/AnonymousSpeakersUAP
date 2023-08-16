@@ -70,7 +70,7 @@ class BaseConfiguration:
         # Embedder options
         self.train_embedder_names = ['spkrec-ecapa-voxceleb' ]
         self.test_embedder_source = ['SpeechBrain']
-        self.test_embedder_names = ['wavlm' ,'spkrec-ecapa-voxceleb', 'spkrec-xvect-voxceleb'] # ['spkrec-xvect-voxceleb'] #['spkrec-ecapa-voxceleb']#, 'spkrec-xvect-voxceleb']
+        self.test_embedder_names = ['wavlm', 'spkrec-ecapa-voxceleb', 'hubert']#, 'wavlm' ,'spkrec-ecapa-voxceleb', 'spkrec-xvect-voxceleb'] # ['spkrec-xvect-voxceleb'] #['spkrec-ecapa-voxceleb']#, 'spkrec-xvect-voxceleb']
         self.test_embedder_classes = {}
         print(self.test_embedder_names)
         # self.datasets_name = ['LIBRIALL']
@@ -222,20 +222,30 @@ class UniversalAttackEval(BaseConfiguration):
 
         # Test dataset options
         self.test_num_of_images_for_emb = 5
-        self.test_dataset_names = ['LIBRI-CLOSE-SET-TEST',"LIBRI-TEST" ]#"VOXCELEB1-CLOSE-SET-TEST"] #"VOXCELEB1-OPEN-SET-TEST"]#, "VOXCELEB1-CLOSE-SET-TEST", "LIBRI-TEST",'LIBRI-CLOSE-SET-TEST'] #'LIBRI-TEST'] # , 'LIBRI-CLOSE-SET-TEST']
+        self.test_dataset_names =  ['LIBRI-CLOSE-SET-TEST-50', "LIBRI-OPEN-SET-TEST" ]# libri open_close
+        # #['VOXCELEB1-CLOSE-SET-TEST-50', "VOXCELEB1-OPEN-SET-TEST-40" ]
+        #["LIBRI-OPEN-SET-TEST", "LIBRI-OPEN-SET-TEST-20-MALES", "LIBRI-OPEN-SET-TEST-20-FEMALES"] gender
+        # ['VOXCELEB1-CLOSE-SET-TEST-50', "VOXCELEB1-OPEN-SET-TEST-40" ] vox open_close
+        # ['LIBRI-CLOSE-SET-TEST-50', "LIBRI-OPEN-SET-TEST" ]# libri open_close
+        # #"VOXCELEB1-OPEN-SET-TEST"]#, "VOXCELEB1-CLOSE-SET-TEST", "LIBRI-TEST",'LIBRI-CLOSE-SET-TEST']
+        # #'LIBRI-TEST'] # , 'LIBRI-CLOSE-SET-TEST']
         self.test_img_dir = {name: self.set_dataset(name) for name in self.test_dataset_names}
         # self.test_img_dir = {name: os.path.join('..', 'datasets', name) for name in self.test_dataset_names}
-        self.test_number_of_people = 40
+        self.test_number_of_people = 40 # TODO: change number of speakers in close set
         self.test_celeb_lab = {}
 
+        print("test_dataset_names: ",self.test_dataset_names)
         for dataset_name, img_dir in self.test_img_dir.items():
-            label_list = os.listdir(img_dir['root_path'])[:self.test_number_of_people]
+            # label_list = os.listdir(img_dir['root_path'])[:self.test_number_of_people]
+            label_list = os.listdir(img_dir['root_path'])
+            label_list.sort()
+            # label_list = label_list[:self.test_number_of_people]
             if dataset_name == self.train_dataset_name:
                 label_list = os.listdir(img_dir['root_path'])[-self.test_number_of_people:]
             self.test_celeb_lab[dataset_name] = label_list
         self.test_celeb_lab_mapper = {dataset_name: {i: lab for i, lab in enumerate(self.test_celeb_lab[dataset_name])}
                                       for dataset_name in self.test_dataset_names}
-
+        print("wait dataset")
         # number_of_speakers = 100
         # speaker_labels = os.listdir(self.dataset_config['root_path'])[:number_of_speakers]
         # speaker_labels_mapper = {i: lab for i, lab in enumerate(speaker_labels)}

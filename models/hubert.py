@@ -7,6 +7,7 @@ class Hubert(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.model = HubertForSequenceClassification.from_pretrained("superb/hubert-base-superb-sid")
+        # self.model.eval()
         # self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("superb/hubert-base-superb-sid")
 
     def encode_batch(self, inputs):

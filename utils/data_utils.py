@@ -44,6 +44,74 @@ TRAIN_SPLIT = 0.8
 
 
 
+
+
+class BasicLibriSpeechDatasetTest(Dataset):
+    def __init__(self, root_path, speaker_labels_mapper, indices, transform=None):
+        # self.files_path , self.labels_df = create_labels_from_path(data_root_dir)
+        self.root_path = root_path
+        self.speaker_labels_mapper = {lab: i for i, lab in speaker_labels_mapper.items()}
+
+        def extend_speakers_utterances():
+            perturb_size = 48000 # current perturb size
+            wav_names = self.get_wav_names(indices)
+            update_names = []
+            update_indices = []
+            start_indices = []
+            for idx, wav_path in zip(indices,wav_names):
+                signal, fs = get_signal_and_fs_from_wav(wav_path, perturb_size=perturb_size) # torchaudio.load(wav_name)
+                signal_len = signal.shape[1]
+                ceil_num = math.floor(signal_len / perturb_size) # 3 is the uap size
+                update_names.extend([wav_path] * ceil_num)
+                update_indices.extend([idx] * ceil_num)
+                start_indices.extend(list(range(0, ceil_num )))
+
+
+            return update_names, update_indices, start_indices
+
+        self.wav_names, self.update_indices, self.start_indices = extend_speakers_utterances()
+
+        self.orig_wav_names = self.get_wav_names(indices)
+        self.orig_indices = indices
+        self.mode = 'Test'
+
+        # self.files_path, self.labels_df = create_labels_from_path(root_path)
+        # self.labels_dict_len = len(self.labels_df)
+
+        self.transform = transform # signal, fs = torchaudio.load(wav_path)
+        # df = pd.DataFrame(self.wav_names)
+        # df.to_csv('data/data_list_files/libri_train_files.csv')
+        # print("write libri_train_files to csv")
+
+    def __len__(self):
+        return len(self.wav_names)
+
+    def __getitem__(self, idx):
+        # img_path = os.path.join(self.data_root_dir, self.labels.iloc[idx, 0])
+        # audio_path = os.path.join(self.data_root_dir, self.files_path[idx])
+        # print("self.files_path[idx]: ", self.wav_names[idx])
+        wav_path = self.wav_names[idx]
+        st_idx = self.start_indices[idx]
+        if not wav_path:
+            print("wav path: ", wav_path)
+        cropped_signal = get_signal_from_wav_test(wav_path, start_idx=st_idx)#get_signal_from_wav_random(wav_path)
+
+        label = wav_path.split(os.path.sep)[-2]
+        if self.transform:
+            cropped_signal = self.transform(cropped_signal)
+        return cropped_signal, self.speaker_labels_mapper[label]
+
+# TODO: change to .flac (libri) instead .wav(voxceleb) to support libri-train-100
+    def get_wav_names(self, indices):
+        files_in_folder = get_nested_dataset_files(self.root_path, self.speaker_labels_mapper.keys())
+        files_in_folder = [item for sublist in files_in_folder for item in sublist]
+        if indices is not None:
+            files_in_folder = [files_in_folder[i] for i in indices]
+        wavs = fnmatch.filter(files_in_folder, '*.flac')
+        return wavs
+
+
+
 class BasicLibriSpeechDataset(Dataset):
     def __init__(self, root_path, speaker_labels_mapper, indices, transform=None):
         # self.files_path , self.labels_df = create_labels_from_path(data_root_dir)
@@ -82,13 +150,13 @@ class BasicLibriSpeechDataset(Dataset):
         return wavs
 
 
-#TODO: changed from .wav to .flac ('**/*.') to support libri-train-100, change to
+#TODO: changed from .wav(voxceleb) to .flac(libri) ('**/*.') to support libri-train-100, change to
 def get_nested_dataset_files(img_dir, labels):
     files_in_folder = [glob.glob(os.path.join(img_dir, lab, '**/*.flac'), recursive=True) for lab in labels]
     return files_in_folder
 
 # TODO: train index depend on num_of_samples which depend on samples to create embbedings from. changed to fit 70% train
-def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.8):
+def get_split_indices(img_dir, labels, test_num_of_images_for_emb,split_rate=0.8,istrain=False):
     dataset_nested_files = get_nested_dataset_files(img_dir, labels)
 
     nested_indices = [np.array(range(len(arr))) for i, arr in enumerate(dataset_nested_files)]
@@ -97,15 +165,23 @@ def get_split_indices(img_dir, labels, num_of_samples,split_rate=0.8):
     for i, arr in enumerate(nested_indices[1:]):
         nested_indices_continuous.append(arr + nested_indices_continuous[i][-1] + 1)
 
+    num1 = random.randint(0, 100)
+    if istrain:
+        np.random.seed(0)
     train_indices = np.concatenate([np.random.choice(arr_idx, size=math.floor(len(arr_idx) * split_rate), replace=False) for arr_idx in nested_indices_continuous])
 
+    # df = pd.DataFrame(train_indices)
+    # df.to_csv(f'data/data_list_files/train_indices_50_libri_f_gender_{num1}_istrain_{istrain}.csv')
+    # print(f"write to csv train_indices_{num1}")
+
     val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices))
-    small_val_indices = list(np.random.choice(val_indices, size=math.floor(len(val_indices) * split_rate),replace=False))
+    # small_val_indices = list(np.random.choice(val_indices, size=math.floor(len(val_indices) * split_rate),replace=False)) # split to subset of validate
+
     # train_indices_ravel = np.array([np.random.choice(arr_idx, size=num_of_samples, replace=False) for arr_idx in
     #                           nested_indices_continuous]).ravel()
     # val_indices = list(set(list(range(nested_indices_continuous[-1][-1]))) - set(train_indices_ravel))
 
-    return train_indices, small_val_indices # val_indices
+    return train_indices, val_indices #small_val_indices # val_indices
 
 
 @torch.no_grad()
@@ -133,8 +209,10 @@ def get_person_embedding(config, loader, person_ids, embedders, device, include_
                 relevant_indices = torch.nonzero(person_indices == idx, as_tuple=True)
                 emb = embedding[relevant_indices]
                 person_embeddings[idx.item()] = torch.cat([person_embeddings[idx.item()], emb], dim=0)
-        final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
-        final_embeddings = torch.cat(final_embeddings,dim=0)
+        # final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in person_embeddings.values()]
+        final_embeddings_small = [get_constant_size_emb(person_emb,test=True) for person_emb in
+                                  person_embeddings.values()]  # TODO: add constrain on embeding size
+        final_embeddings = torch.cat(final_embeddings_small,dim=0)
         embeddings_by_embedder[embedder_name] = final_embeddings
     return embeddings_by_embedder
 
@@ -166,8 +244,12 @@ def get_person_embedding(config, loader, person_ids, embedders, device, include_
 
 
 
-def get_dataset(dataset_name):
-    if 'LIBRI' in dataset_name:# == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL':
+def get_dataset(dataset_name,test_mode=False):
+    if 'LIBRI' in dataset_name and test_mode:# == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL': # Test_full
+        return BasicLibriSpeechDatasetTest
+    elif 'VOX' in dataset_name and test_mode:# == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL': # Test_full
+        return BasicLibriSpeechDatasetTest
+    elif 'LIBRI' in dataset_name:# == 'LIBRI' or dataset_name == 'LIBRI-TEST' or dataset_name == 'LIBRIALL':
         return BasicLibriSpeechDataset
     elif 'VOX' in dataset_name:# == 'VOX1':
         return BasicLibriSpeechDataset
@@ -178,7 +260,7 @@ def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
     dataset_name = dataset_config['dataset_name']
     train_indices, val_indices = get_split_indices(dataset_config['root_path'],
                                                    dataset_config['speaker_labels'],
-                                                   dataset_config['num_wavs_for_emb'])
+                                                   dataset_config['num_wavs_for_emb'], istrain=True)
     train_loader, val_loader, test_loader = None, None, None
     dataset = get_dataset(dataset_name)
     if 'train' in splits_to_load:
@@ -218,6 +300,15 @@ def get_loaders(loader_params, dataset_config, splits_to_load, **kwargs):
     #                           pin_memory=True)
     return train_loader, val_loader, test_loader
 
+def update_loader_indices(indices,loader, perturb_size = 48000):
+    update_indices = []
+    for wav_path in loader.wav_names:
+        signal, fs = get_signal_and_fs_from_wav(wav_path, perturb_size=perturb_size)  # torchaudio.load(wav_name)
+        signal_len = signal.shape[1]
+        ceil_num = math.floor(signal_len / perturb_size)  # 3 is the uap size
+        update_indices.extend([wav_path] * ceil_num)
+
+    return update_indices
 
 def get_test_loaders(config, dataset_names):
     emb_loaders = {}
@@ -225,8 +316,9 @@ def get_test_loaders(config, dataset_names):
     for dataset_name in dataset_names:
         test_indices, emb_indices = get_split_indices(config.test_img_dir[dataset_name]['root_path'],
                                                       config.test_celeb_lab[dataset_name],
-                                                      config.test_num_of_images_for_emb)
-        dataset = get_dataset(dataset_name)
+                                                      config.test_num_of_images_for_emb,split_rate=0.5)
+
+        dataset = get_dataset (dataset_name, test_mode=True) # (dataset_name, test_mode=True)# (dataset_name)
         emb_dataset = dataset(root_path=config.test_img_dir[dataset_name]['root_path'],
                                      speaker_labels_mapper=config.test_celeb_lab_mapper[dataset_name],
                                      indices=emb_indices,
@@ -234,14 +326,24 @@ def get_test_loaders(config, dataset_names):
         emb_loader = DataLoader(emb_dataset, batch_size=config.test_batch_size)
         emb_loaders[dataset_name] = emb_loader
 
+        # original with sampling 3s from file
+        # test_dataset = dataset(root_path=config.test_img_dir[dataset_name]['root_path'],
+        #                        speaker_labels_mapper=config.test_celeb_lab_mapper[dataset_name],
+        #                        indices=test_indices
+        #                        )
+        # test_loader = DataLoader(test_dataset, batch_size=config.test_batch_size)
+        # test_loaders[dataset_name] = test_loader
+
         # self.speaker_embeddings = get_embeddings(self.model,
         #                                          self.train_loader,
         #                                          self.cfg['dataset_config']['speaker_labels_mapper'].keys(),
         #                                          self.cfg['device'])
 
+        # update test loader, use all utterances length not sample 3s
+        # update_loader_indices(test_indices)
 
-
-        test_dataset = dataset(root_path=config.test_img_dir[dataset_name]['root_path'],
+        t_dataset = get_dataset(dataset_name, test_mode=True)
+        test_dataset = t_dataset(root_path=config.test_img_dir[dataset_name]['root_path'],
                                       speaker_labels_mapper=config.test_celeb_lab_mapper[dataset_name],
                                       indices=test_indices
                                       )
@@ -636,6 +738,22 @@ def get_signal_and_fs_from_wav(wav_path, perturb_size=48000):
     #     print(f"signal len: {signal.shape} _ wav_path: {wav_path} _original_size:{src_signal_size} ")
     return signal, fs
 
+# def get_signal_and_fs_from_wav_test(wav_path, perturb_size=48000, st_indx=0):
+#     signal, fs = torchaudio.load(wav_path)
+#     # src_signal_size = signal.shape
+#     # print("signal.shape[1]: ",signal.shape[1])
+#     if signal.shape[1] > perturb_size +1:
+#         return signal, fs
+#
+#     else:
+#         c_size = math.ceil(perturb_size / signal.shape[1]) +1
+#         # TODO: adding +1 to handle ValueError: high <= 0
+#         cat_size = [signal for i in range(c_size)]
+#         signal = torch.cat(cat_size, 1)
+#     # if signal.shape[1]==48000:
+#     #     print(f"signal len: {signal.shape} _ wav_path: {wav_path} _original_size:{src_signal_size} ")
+#     return signal, fs
+
 # add 5 for margin. handle signal with size 48000 exactly
 def get_signal_from_wav_random(wav_path, perturb_size=48000):
     signal, _ = get_signal_and_fs_from_wav(wav_path, perturb_size=perturb_size)
@@ -649,7 +767,17 @@ def get_signal_from_wav_random(wav_path, perturb_size=48000):
 
     return cropped_signal
 
+def get_signal_from_wav_test(wav_path, perturb_size=48000,start_idx=0):
+    signal, _ = get_signal_and_fs_from_wav(wav_path, perturb_size=perturb_size)
+    signal_len = signal.shape[1]
+    if (signal_len - (perturb_size + 1)) <= 0:
+        print("temp <=0: ",wav_path )
+    # start_idx = np.random.randint(low=0, high=(signal_len - (perturb_size + 1)), dtype=np.int64())
+    cropped_signal = signal[0][start_idx: start_idx + perturb_size]
+    # print(start_idx)
+    # print(f'high:_ {(signal_len - (perturb_size + 10))}_signal_len{signal_len}')
 
+    return cropped_signal
 
 @torch.no_grad()
 def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device):
@@ -673,6 +801,19 @@ def get_speaker_embedding(model, data_path, speaker_id, num_samples, fs, device)
     return speaker_emb.mean(dim=0)
 
 
+def get_constant_size_emb(person_emb, emb_size=5,test=False):
+    # torch.randint(3, 5, (len(person_emb),))
+    # .unsqueeze(0).cpu()
+    # print("wait")
+    # torch.manual_seed(42)
+    indices = [5,15,20,25,30]
+    if test:
+        indices = [0,1,2,3,4] # [0,1,2,3,4]
+    # indices = torch.randperm(len(person_emb))[:emb_size]
+    speaker_emb = person_emb[indices]
+    speaker_emb_mean = torch.mean(speaker_emb,dim=0)
+    return speaker_emb_mean.unsqueeze(0)
+
 @torch.no_grad()
 def get_embeddings(model, loader, person_ids, device):
     embeddings = {id: torch.empty(0, device=device) for id in person_ids}
@@ -683,9 +824,11 @@ def get_embeddings(model, loader, person_ids, device):
             relevant_indices = torch.nonzero(person_ids_batch == idx, as_tuple=True)
             emb = embedding[relevant_indices]
             embeddings[idx.item()] = torch.cat([embeddings[idx.item()], emb], dim=0)
-    final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in embeddings.values()]
-    final_embeddings = torch.cat(final_embeddings, dim=0)
+    # final_embeddings = [person_emb.mean(dim=0).unsqueeze(0) for person_emb in embeddings.values()] # TODO: add constrain on embeding size
+    final_embeddings_small = [ get_constant_size_emb(person_emb) for person_emb in embeddings.values()]  # TODO: add constrain on embeding size
+    final_embeddings = torch.cat(final_embeddings_small, dim=0)
     return final_embeddings
+
 
 
 def add_noise_awgn():
@@ -742,7 +885,7 @@ def create_gt_by_eps_perturbation(eps=2.):
     # file_path_w2 = "/sise/home/hanina/speaker_attack/data/libri_train-clean-100/32/32-21631-0008.flac"
     src_signal = get_signal_from_wav_random(file_path_men)
     adv_perturb_cosim_ep100 = torch.from_numpy(load_from_npy(
-        os.path.join('..', 'data', 'uap_perturbation'), 'cosim', '100ep_100spk'))
+        os.path.join('..', 'data', 'uap_perturbation','JUL_SPK_NUMS_ALL_50spk_LIBRI_CLOSE_OPEN', 'ecapa'),'cosim', '100ep_100spk'))
 
     # adv_perturb_cosim_ep100_gt_eps = adv_perturb_cosim_ep100 * eps
 
@@ -750,8 +893,9 @@ def create_gt_by_eps_perturbation(eps=2.):
     adv_signal_eps = src_signal + adv_perturb_cosim_ep100 * eps
 
     # save_emb_as_npy("..", uniform_noise, "output_files", "gt_eps_man_perturb")
-    save_audio_as_wav("..", adv_signal_reg, "output_files", "reg_man_perturb.wav")
-    save_audio_as_wav("..", adv_signal_eps, "output_files", "eps_man_perturb.wav")
+
+    # save_audio_as_wav("..", adv_signal_reg, "output_files", "reg_man_perturb.wav")
+    # save_audio_as_wav("..", adv_signal_eps, "output_files", "eps_man_perturb.wav")
 
     snr_calc_reg = calculator_snr_direct(src_signal.unsqueeze(0), adv_signal_reg.unsqueeze(0))
     snr_calc_eps = calculator_snr_direct(src_signal.unsqueeze(0), adv_signal_eps.unsqueeze(0))
@@ -957,7 +1101,8 @@ def create_adversarial_files_using_perturbation(save_files = True):
     # expr_50_50 = "/sise/home/hanina/speaker_attack/experiments/February/27-02-2023_174121_664051/"
     num_eval_spks = 3
     eps = 1
-    output_adversarial = "../data/19_5_2023_results/libri_adversarial/"
+    base_path = "../data/21_7_2023_results"
+    output_adversarial = f"{base_path}/libri_adversarial/"#19_5_2023_results/libri_adversarial/"
     output_adversarial = output_adversarial + datetime.datetime.now().strftime("%H-%M_%d-%m-%Y")
 
     if not os.path.exists(output_adversarial):
@@ -967,7 +1112,7 @@ def create_adversarial_files_using_perturbation(save_files = True):
         os.makedirs(os.path.join(output_adversarial , "adversarial"))
 
 
-    exper = "../data/19_5_2023_results/uap_perturbation_ecapa/"
+    exper = f"{base_path}/uap_perturbation_ecapa/"
     # ecapa, xvector, wavlm
     training_path = 'data/LIBRI/d1'
     # eval_path = "../data/libri_train-clean-100/"
@@ -1009,9 +1154,13 @@ def create_adversarial_files_using_perturbation(save_files = True):
 
     # src_signal = get_signal_from_wav_random("../data/libri_train-clean-100/200/200-124140-0012.flac")
 
+
+# def plot_clean_signal(sig_path):
+#     plot_waveform
 if __name__ == '__main__':
     import torchaudio
 
+    create_gt_by_eps_perturbation()
     create_adversarial_files_using_perturbation()
     # create_adversarial_files_using_perturbation()
     # add_noise_awgn()

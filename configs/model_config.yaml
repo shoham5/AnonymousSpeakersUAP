@@ -11,4 +11,4 @@ wavlm:
 titanet:
   files_path: 'models/Titanet/titanet -l.nemo'
 hubert:
-  files_path: ''
+  files_path: 'models/hubert/hubert_pt.pt'

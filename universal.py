@@ -1,6 +1,6 @@
 from torch.optim import AdamW
 import torch
-
+from statistics import mean
 import gc
 import os
 import math
@@ -11,7 +11,7 @@ import sys
 import numpy as np
 from configs.attacks_config import config_dict
 from utils.model_utils import get_speaker_model, get_speaker_model_by_name
-from utils.general import get_instance, save_config_to_file, calculator_snr_direct, get_pert, PESQ, calculate_l2, calculate_snr_github_direct
+from utils.general import get_instance, save_config_to_file, calculator_snr_direct, get_pert, PESQ, calculate_l2, calculate_snr_github_direct,calculate_snr_github_direct_pkg
 from utils.data_utils import get_embeddings, get_loaders
 from utils.losses_utils import WSNRLoss,SNRLoss,custom_clip
 from utils.similarities_utils import CosineSimilaritySims
@@ -38,8 +38,8 @@ class UniversalAttack:
         self.cfg = cfg
         self.cfg.attack_type = self.__class__.__name__  # for logging purposes when inheriting from another class
         self.norm = 2
-        self.eps_projection = 1 # 100  # 10 ,50 , 100 , 1
-
+        self.eps_projection = 1 #0.5 # 100  # 10 ,50 , 100 , 1
+        print(f"eps_projection: {self.eps_projection}")
         self.model = get_speaker_model(cfg)
         # self.model_by_name = get_speaker_model_by_name(self.cfg.model_name,cfg, device)
         self.is_first = True
@@ -64,7 +64,7 @@ class UniversalAttack:
         self.snr_loss = WSNRLoss()
         self.loss_train_values = []
         self.loss_eval_values = []
-        self.similarity_eval_values = []
+        self.similarity_train_values = []
         self.similarity_eval_values = []
         self.snr_train_values = []
         self.snr_eval_values = []
@@ -87,16 +87,17 @@ class UniversalAttack:
     def generate(self):
         adv_pert = get_pert(self.cfg['init_pert_type'], size=self.cfg['fs'] * self.cfg['num_of_seconds'])
         temp_adv_pert = 0
+        print("self.eps_snr = 0.75 ")
 
         # rndr_eps = np.random.uniform(0.1,self.eps_projection)
         # # change_eps_projection = math.floor(self.cfg.epochs / 4)
         # print("rndr_eps: ", rndr_eps)
-        loss_config = "cosim" #"pesq_snr" # snr   cosim
+        loss_config = "snr" #"pesq_snr" # snr   cosim # "ensemble"
         # optimizer = AdamW([adv_pert], lr=self.cfg.start_learning_rate)
         optimizer = torch.optim.Adam([adv_pert], lr=self.cfg.start_learning_rate, amsgrad=True)
         scheduler = self.cfg.scheduler_factory(optimizer)
         print("eps_projection: ",self.eps_projection)
-        print(f"\nconfig generate: uap_init_{self.cfg['init_pert_type']}_{loss_config}_ep100_spk100")
+        print(f"\nconfig generate: # speakers: {self.cfg['dataset_config']['number_of_speakers']}_uap_init_{self.cfg['init_pert_type']}_{loss_config}_ep100_spk100")
         for epoch in range(self.cfg.epochs):
             running_loss = 0.0
             running_snr = 0.0
@@ -104,43 +105,73 @@ class UniversalAttack:
             # prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}'
             prog_bar_desc = 'Batch Loss: {:.6}'  # , SNR: {:.6}'
 
+            is_snr = False
+            is_first = False
+            is_ensamble = False
+
+            if loss_config == 'ensemble':
+                is_ensamble = True
+
+            if loss_config == "snr":
+                is_snr = True
+                # is_first = True
+
+            # if not epoch == 0:
+            #     adv_pert_sec = get_pert(self.cfg['init_pert_type'], size=self.cfg['fs'] * self.cfg['num_of_seconds'])
+            #     adv_pert.data += adv_pert_sec.data
 
             for i_batch, (cropped_signal_batch, person_ids_batch) in progress_bar:
-                loss, running_loss, adv_cropped_signal_batch = self.forward_step(adv_pert, cropped_signal_batch, person_ids_batch, running_loss)
+                # print("cropped_signal_batch.shape[0]:  " ,cropped_signal_batch.shape[0])
+                if cropped_signal_batch.shape[0] != 64: continue  # batch_size
 
-                print("cosim loss: ", loss.item())
+                loss, running_loss, adv_cropped_signal_batch = self.forward_step(adv_pert, cropped_signal_batch,
+                                                                                 person_ids_batch, running_loss,
+                                                                                 snr=is_snr, first=is_first,ensamble_mode=is_ensamble)
+                self.similarity_train_values.append(str(round(loss.item(), 5)))
+                # print("cosim loss: ", loss.item())
+                is_first = False
 
 
 
                 ###################################################################################
 
                 #
-                # pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
+                pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
                 # print("\npesq mean: ", pesq_loss)
+
                 # snr_loss = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
                 #                                            cropped_signal_batch.cpu().detach().numpy())
                 # print("snr : ", snr_loss)
+                snr_loss_sec = calculate_snr_github_direct_pkg (adv_cropped_signal_batch.cpu().detach(),
+                                                           cropped_signal_batch).item()
 
-                # temp_loss = ((100 - snr_loss) / 100)  # + (factor_snr/60)
+                # print("snr pck: ", snr_loss_sec)
+
+                # temp_loss = ((55 - snr_loss_sec) / 55)  # + (factor_snr/60) 100
+
+                # temp_loss = -snr_loss_sec/65  # + (factor_snr/60) 100
+
                 # print("snr loss : ", temp_loss)
                 # pesq_temp_loss = (4.5 - pesq_loss) / 4.5
                 # print("pesq loss : ", pesq_temp_loss)
 
                 # if loss_config == "snr":
-                #     loss.data += temp_loss
+                #     loss += temp_loss
+
                 # elif loss_config == "pesq_snr":
                 #     loss.data += (0.5 * pesq_temp_loss)  # using pesq + snr
                 #     loss.data += (0.5 * temp_loss)  # using pesq + snr
                 #
 
-                # self.snr_train_values.append(str(round(snr_loss, 5)))
-                # self.pesq_train_values.append(str(round(pesq_loss, 5)))
+                self.snr_train_values.append(str(round(snr_loss_sec, 5)))
+                self.pesq_train_values.append(str(round(pesq_loss, 5)))
+
                 # running_snr += snr_loss
 
                 ###################################################################################
 
                 self.loss_train_values.append(str(round(loss.item(), 5)))
-                print("loss after: ", loss.item())
+                # print("loss after: ", loss.item())
 
 ########################################################################################
                 optimizer.zero_grad()
@@ -161,11 +192,16 @@ class UniversalAttack:
 
 
             val_loss = self.evaluate(adv_pert)
-            print("evaluate_loss: ",val_loss)
+            print("evaluate_running_loss: ",val_loss)
 
             scheduler.step(val_loss)
 
         self.save_files(adv_pert)
+        print("sims: ", self.similarity_train_values )
+        print("snr: ", self.snr_train_values )
+        print("pesq: ", self.pesq_train_values )
+        print("eval sims: ", self.loss_eval_values)
+        print("snr sims: ", self.snr_eval_values)
 
     def apply_perturbation(self, input, adv_pert, clip=True):
         input = input.to(self.cfg['device'])
@@ -204,8 +240,9 @@ class UniversalAttack:
     #     ind = tuple(range(1, len(adv_x_shape)))
     #     grad = grad / (torch.sqrt(torch.sum(grad * grad, dim=ind, keepdim=True)) + tol)
     #     return grad
+    def forward_step_ensemble(self, adv_pert, cropped_signal_batch, person_ids_batch, running_loss, snr, first, ensamble_mode):
+        alpha = 0.75
 
-    def forward_step(self, adv_pert, cropped_signal_batch, person_ids_batch, running_loss):
         cropped_signal_batch = cropped_signal_batch.to(self.cfg['device'])
         person_ids_batch = person_ids_batch.to(self.cfg['device'])
         adv_pert = adv_pert.to(self.cfg['device'])
@@ -213,6 +250,39 @@ class UniversalAttack:
         adv_batch = self.apply_perturbation(cropped_signal_batch, adv_pert)
         adv_embs = self.model.encode_batch(adv_batch)
         loss = self.loss_fn(adv_embs, person_ids_batch)
+        # if not first:
+        # if snr:
+        #     snr_loss_sec = calculate_snr_github_direct_pkg(adv_batch.cpu().detach(),
+        #                                                    cropped_signal_batch.cpu().detach()).item()
+        #     temp_loss = ((60 - snr_loss_sec) / 60) * 1000   # + (factor_snr/60) 100
+        #     # temp_loss = snr_loss_sec * 10
+        #     loss = loss * (1-alpha)
+        #     loss += temp_loss
+        running_loss += loss.item()
+        del cropped_signal_batch
+        del person_ids_batch
+        del adv_pert
+        torch.cuda.empty_cache()
+        return loss, running_loss, adv_batch
+
+    def forward_step(self, adv_pert, cropped_signal_batch, person_ids_batch, running_loss, snr, first, ensamble_mode):
+        alpha = 0.75
+
+        cropped_signal_batch = cropped_signal_batch.to(self.cfg['device'])
+        person_ids_batch = person_ids_batch.to(self.cfg['device'])
+        adv_pert = adv_pert.to(self.cfg['device'])
+
+        adv_batch = self.apply_perturbation(cropped_signal_batch, adv_pert)
+        adv_embs = self.model.encode_batch(adv_batch)
+        loss = self.loss_fn(adv_embs, person_ids_batch)
+        # if not first:
+        if snr:
+            snr_loss_sec = calculate_snr_github_direct_pkg(adv_batch.cpu().detach(),
+                                                           cropped_signal_batch.cpu().detach()).item()
+            temp_loss = ((60 - snr_loss_sec) / 60) * 100   # + (factor_snr/60) 100
+            # temp_loss = snr_loss_sec * 10
+            loss = loss * (1-alpha)
+            loss += temp_loss
         running_loss += loss.item()
         del cropped_signal_batch
         del person_ids_batch
@@ -298,13 +368,16 @@ class UniversalAttack:
         for i_batch, (cropped_signal_batch, person_ids_batch) in progress_bar:
             if cropped_signal_batch.shape[0] != 64 : continue #  batch_size
             loss, running_loss, adv_cropped_signal_batch = self.forward_step_eval(adv_pert, cropped_signal_batch, person_ids_batch, running_loss)
-            adv_snr = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
-                                                  cropped_signal_batch.cpu().detach().numpy())
+            # adv_snr = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
+            #                                       cropped_signal_batch.cpu().detach().numpy())
+
+            adv_snr = calculate_snr_github_direct_pkg(adv_cropped_signal_batch.cpu().detach(),
+                                                           cropped_signal_batch).item()
 
             # temp_emb = self.model.encode_batch(cropped_signal_batch + adv_pert).cpu() # TODO: can be change using adv_cropped_signal_batch?
             # temp_labels = torch.index_select(curr_speakers, index=person_ids_batch, dim=0).cpu()
             # adv_sims = sims(temp_emb, temp_labels).mean()
-            print("\nadv_snr: ",adv_snr)
+            # print("\nadv_snr: ",adv_snr)
 
             # pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
             # print("pesq: ", pesq_loss)
@@ -312,10 +385,14 @@ class UniversalAttack:
             # print("adv_snr TYPE:" , type(adv_snr))
             # self.similarity_eval_values.append(str(round(adv_sims.item(), 5)))
 
-            self.loss_eval_values.append(str(round(loss.item(), 5)))
-            self.snr_eval_values.append(str(round(adv_snr, 5)))
+            # similarity_values.append(round(loss.item(), 5))
+            # similarity_snr.append(round(adv_snr, 5))
+
+            self.loss_eval_values.append(round(loss.item(), 5))
+            self.snr_eval_values.append(round(adv_snr, 5))  # str(round(adv_snr, 5)))
+
             # self.pesq_eval_values.append(str(round(pesq_loss, 5)))
-            print("sims: ", str(round(loss.item(), 5)))
+            # print("sims: ", str(round(loss.item(), 5)))
             running_snr += adv_snr
             running_sims += round(loss.item(), 5)
             progress_bar.set_postfix_str(prog_bar_desc.format(running_loss / (i_batch + 1),
@@ -323,6 +400,8 @@ class UniversalAttack:
                                                               # ,running_sims / (i_batch + 1)))
 
         # self.similarity_values.append(similarity_values)
+        # self.loss_eval_values.append(mean(similarity_values))#str(round(loss.item(), 5)))
+        # self.snr_eval_values.append(mean(similarity_snr))#str(round(adv_snr, 5)))
         return running_loss / len(self.val_loader)
 
     def save_eval(self):

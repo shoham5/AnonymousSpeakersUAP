@@ -28,14 +28,14 @@ class BaseConfig:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model_source = 'SpeechBrain'  # see configs/model_config.yaml for other options
-        model_name = "spkrec-ecapa-voxceleb"  # "spkrec-xvect-voxceleb" # "wavlm" # "spkrec-ecapa-voxceleb" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
+        model_name ="spkrec-ecapa-voxceleb"  # "spkrec-ecapa-voxceleb"  #"spkrec-ecapa-voxceleb" # "hubert" # "spkrec-xvect-voxceleb" # "wavlm" # "titanet" #"wavlm"# "spkrec-xvect-voxceleb" #"spkrec-ecapa-voxceleb"#
 
         # 'spkrec-ecapa-voxceleb'  # see configs/model_config.yaml for other options
 
         print("model_name: ",model_name)
         self._set_model(model_source, model_name)
 
-        dataset_name ='LIBRI-CLOSE-SET-TRAIN'# 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'# 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'#'LIBRI-CLOSE-SET-TRAIN' # 'LIBRIALL'
+        dataset_name = 'LIBRI-CLOSE-SET-TRAIN-50'#'LIBRI-CLOSE-SET-TRAIN-50' # 'VOXCELEB1-CLOSE-SET-TRAIN' # 'LIBRI-CLOSE-SET-TRAIN'# 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'# 'LIBRI-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN' # 'VOXCELEB1-CLOSE-SET-TRAIN'#'LIBRI-CLOSE-SET-TRAIN' # 'LIBRIALL'
         print("dataset_name: ", dataset_name)
         self._set_dataset(dataset_name)
 
@@ -270,10 +270,15 @@ class UniversalAttackConfig(BaseConfig):
                                                                                               patience=self.sc_patience,
                                                                                               min_lr=self.sc_min_lr,
                                                                                               mode='min')
-        number_of_speakers = 100
-        speaker_labels = os.listdir(self.dataset_config['root_path'])[:number_of_speakers]
+        number_of_speakers = 50
+        print(f"epochs: {self.epochs} , number_of_speakers: {number_of_speakers}")
+        # speaker_labels = os.listdir(self.dataset_config['root_path'])[:number_of_speakers]
+        speaker_labels = os.listdir(self.dataset_config['root_path'])
+        speaker_labels.sort()
+        speaker_labels = speaker_labels[:number_of_speakers]
+
         speaker_labels_mapper = {i: lab for i, lab in enumerate(speaker_labels)}
-        num_wavs_for_emb = 5
+        num_wavs_for_emb = 5 # not in use
         self.dataset_config.update({
             'number_of_speakers': number_of_speakers,
             'speaker_labels': speaker_labels,

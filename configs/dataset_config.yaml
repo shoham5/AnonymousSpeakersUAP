@@ -7,23 +7,90 @@ LIBRI1:
 LIBRIALL:
   dataset_name: 'LIBRI'
   root_path: 'data/libri_train-clean-100/'
-LIBRI-TEST:
+LIBRI-OPEN-SET-TEST:
   dataset_name: 'LIBRI'
   root_path: 'data/libri-test-clean/'
 LIBRI-CLOSE-SET-TRAIN:
   dataset_name: 'LIBRI'
   root_path: 'data/train_test-librispeech_train-100/train/'
+LIBRI-CLOSE-SET-TRAIN-10:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/10/train/'
+LIBRI-CLOSE-SET-TRAIN-20:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/20/train/'
+LIBRI-CLOSE-SET-TRAIN-50:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/50/train/'
+LIBRI-CLOSE-SET-TRAIN-80:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/80/train/'
+LIBRI-CLOSE-SET-TRAIN-100:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/100/train/'
+LIBRI-CLOSE-SET-TEST-10:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/10/test/'
+LIBRI-CLOSE-SET-TEST-20:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/20/test/'
+LIBRI-CLOSE-SET-TEST-50:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/50/test/'
+LIBRI-CLOSE-SET-TEST-80:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/80/test/'
+LIBRI-CLOSE-SET-TEST-100:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/100/test/'
 LIBRI-CLOSE-SET-TEST:
   dataset_name: 'LIBRI'
   root_path: 'data/train_test-librispeech_train-100/test/'
+LIBRI-CLOSE-SET-TRAIN-50-MALES:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/gender/males/50/train/'
+LIBRI-CLOSE-SET-TEST-50-MALES:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/gender/males/50/test/'
+LIBRI-CLOSE-SET-TRAIN-50-FEMALES:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/gender/females/50/train/'
+LIBRI-CLOSE-SET-TEST-50-FEMALES:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/gender/females/50/test/'
+LIBRI-OPEN-SET-TEST-20-MALES:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_test_open-set_gender/males'
+LIBRI-OPEN-SET-TEST-20-FEMALES:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_test_open-set_gender/females'
 VOXCELEB1-CLOSE-SET-TRAIN:
   dataset_name: 'VOX1'
   root_path: 'data/train_test-voxceleb1/train/'
 VOXCELEB1-CLOSE-SET-TEST:
   dataset_name: 'VOX1'
   root_path: 'data/train_test-voxceleb1/test/'
-
 VOXCELEB1-OPEN-SET-TEST:
   dataset_name: 'VOX1'
   root_path: 'data/voxceleb1_test_open-set/'
-
+VOXCELEB1-CLOSE-SET-TRAIN-50:
+  dataset_name: 'VOX1'
+  root_path: 'data/train_test-voxceleb1/50/train/'
+VOXCELEB1-CLOSE-SET-TEST-50:
+  dataset_name: 'VOX1'
+  root_path: 'data/train_test-voxceleb1/50/test/'
+VOXCELEB1-OPEN-SET-TEST-40:
+  dataset_name: 'VOX1'
+  root_path: 'data/voxceleb1_test_open-set/'
+LIBRI-CLOSE-SET-TRAIN-TAILOR-196:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/tailor_made_50/train/196/'
+LIBRI-CLOSE-SET-TEST-TAILOR-196:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/tailor_made_50/test/196/'
+LIBRI-CLOSE-SET-TRAIN-TAILOR-125:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/tailor_made_50/train/125/'
+LIBRI-CLOSE-SET-TEST-TAILOR-125:
+  dataset_name: 'LIBRI'
+  root_path: 'data/libri_close_set_110spk/tailor_made_50/test/125/'

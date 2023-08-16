@@ -28,9 +28,13 @@ def get_speaker_model_by_name(embedder_name, cfg, device):
     if embedder_name == 'spkrec-ecapa-voxceleb': # 'SpeechBrain' :
         model = EncoderClassifier.from_hparams(cfg['files_path'])
         model.device = device
+        model.eval()
+        model.to(device)
     elif embedder_name == 'spkrec-xvect-voxceleb':
         model = EncoderClassifier.from_hparams(cfg['files_path'])
         model.device = device
+        model.eval()
+        model.to(device)
         # model.eval()
         # model.to(device)
     # elif embedder_name == 'wavlm':
@@ -44,14 +48,20 @@ def get_speaker_model_by_name(embedder_name, cfg, device):
         model = WavLM(cfg_model)
         model.load_state_dict(checkpoint['model'])
         # model = model.double()
-        # model.eval()
+        model.eval()
+        model.to(device)
         # model.to(cfg['device'])
+
+    elif embedder_name == 'hubert':
+        model = Hubert()
+        model.eval()
+        model.to(device)
 
     else:
         raise Exception('Model type {} not found'.format(embedder_name))
 
-    model.eval()
-    model.to(device)
+    # model.eval()
+    # model.to(device)
     return model
 
 
@@ -94,7 +104,7 @@ def get_speaker_model(cfg):
         model = Titanet(cfg['device'])
         # model = titanet.get_model()
 
-        print("wait")
+        # print("wait")
         # checkpoint = torch.load(cfg['model_config']['files_path'])
         # cfg_model = WavLMConfig(checkpoint['cfg'])
         # model = WavLM(cfg_model)
