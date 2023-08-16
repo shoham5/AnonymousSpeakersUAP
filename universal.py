@@ -277,8 +277,8 @@ class UniversalAttack:
         loss = self.loss_fn(adv_embs, person_ids_batch)
         # if not first:
         if snr:
-            snr_loss_sec = calculate_snr_github_direct_pkg(adv_batch.cpu().detach(),
-                                                           cropped_signal_batch.cpu().detach()).item()
+            snr_loss_sec = calculate_snr_github_direct_pkg(adv_batch,
+                                                           cropped_signal_batch).item()
             temp_loss = ((60 - snr_loss_sec) / 60) * 100   # + (factor_snr/60) 100
             # temp_loss = snr_loss_sec * 10
             loss = loss * (1-alpha)

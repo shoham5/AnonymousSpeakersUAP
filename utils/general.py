@@ -15,7 +15,7 @@ import seaborn as sns
 import scipy.io.wavfile as wav
 from pathlib import Path
 from torchmetrics import SignalNoiseRatio
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def init_seeds(seed=0):
     # Initialize random number generator (RNG) seeds https://pytorch.org/docs/stable/notes/randomness.html
@@ -306,7 +306,7 @@ def calculate_snr_github_direct(pred: np.array, label: np.array): # pred = adver
 
 def calculate_snr_github_direct_pkg(pred, label): # pred = adversarial, label = source data
     # assert pred.shape == label.shape, "the shape of pred and label must be the same"
-    snr_func =  SignalNoiseRatio()
+    snr_func =  SignalNoiseRatio().to(device=device)
     # print("wait snr ")
     snr = snr_func(pred, label)
     # pred, label = (pred + 1) / 2, (label + 1) / 2
