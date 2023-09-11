@@ -1,36 +1,18 @@
-from torch.optim import AdamW
+from builtins import enumerate
 import torch
-from statistics import mean
 import gc
 import os
-import math
 import pandas as pd
 from tqdm import tqdm
-from pathlib import Path
-import sys
-import numpy as np
 from configs.attacks_config import config_dict
-from utils.model_utils import get_speaker_model, get_speaker_model_by_name
-from utils.general import get_instance, save_config_to_file, calculator_snr_direct, get_pert, PESQ, calculate_l2, calculate_snr_github_direct,calculate_snr_github_direct_pkg
+from utils.model_utils import get_speaker_model, get_multiple_speaker_models
+from utils.general import get_instance, save_config_to_file, get_pert, PESQ, calculate_snr_github_direct_pkg
 from utils.data_utils import get_embeddings, get_loaders
-from utils.losses_utils import WSNRLoss,SNRLoss,custom_clip
-from utils.similarities_utils import CosineSimilaritySims
-from utils.data_utils import save_audio_as_wav, create_dirs_not_exist, save_emb_as_npy,\
-    load_from_npy, load_audio_from_wav, save_to_pickle
+from utils.data_utils import save_audio_as_wav, create_dirs_not_exist, save_emb_as_npy,save_to_pickle
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# FILE = Path(__file__).resolve()
-# ROOT = FILE.parents[1]
-# if str(ROOT) not in sys.path:
-#     sys.path.append(str(ROOT))
-#
-# ROOT = Path(os.path.relpath(ROOT, Path.cwd()))
 
 
-
-EPS = 1. #0.9 # 0.007,0.05, 0.01, 0.1, 0.5,
-EPS_PROJECTION = 0.3#0.7 # 0.1, 0.3, 0.5, 0.75, 1
-COUNTER = 0
 class UniversalAttack:
 
     def __init__(self, cfg) -> None:
@@ -38,10 +20,12 @@ class UniversalAttack:
         self.cfg = cfg
         self.cfg.attack_type = self.__class__.__name__  # for logging purposes when inheriting from another class
         self.norm = 2
-        self.eps_projection = 1 #0.5 # 100  # 10 ,50 , 100 , 1
+        self.eps_projection = 1
+        self.alpha_snr = 0
         print(f"eps_projection: {self.eps_projection}")
+        print(f"self.alpha_snr: {self.alpha_snr}")
         self.model = get_speaker_model(cfg)
-        # self.model_by_name = get_speaker_model_by_name(self.cfg.model_name,cfg, device)
+        self.multi_models = get_multiple_speaker_models(cfg)
         self.is_first = True
         self.train_loader, self.val_loader, _ = get_loaders(self.cfg['loader_params'],
                                                             self.cfg['dataset_config'],
@@ -52,7 +36,6 @@ class UniversalAttack:
                                                  self.cfg['dataset_config']['speaker_labels_mapper'].keys(),
                                                  self.cfg['device'])
 
-        # Use different distance metrics
         self.loss_fns = []
         for i, (loss_cfg, loss_func_params) in enumerate(zip(self.cfg['losses_config'], self.cfg['loss_func_params'].values())):
             loss_func = get_instance(loss_cfg['module_name'],
@@ -61,7 +44,6 @@ class UniversalAttack:
 
         save_config_to_file(self.cfg, self.cfg['current_dir'])
 
-        self.snr_loss = WSNRLoss()
         self.loss_train_values = []
         self.loss_eval_values = []
         self.similarity_train_values = []
@@ -70,8 +52,6 @@ class UniversalAttack:
         self.snr_eval_values = []
         self.pesq_train_values = []
         self.pesq_eval_values = []
-
-
         self.counter = 0
         self.prev_files_loc = self.cfg['current_dir']
         df_cols = ['first', 'sec', 'third']
@@ -82,18 +62,9 @@ class UniversalAttack:
             to_csv(os.path.join(self.cfg['current_dir'], 'loss_results.csv'))
         create_dirs_not_exist(self.cfg['current_dir'], ["perturbation", "embedding", "adversarial"])
 
-
-
     def generate(self):
         adv_pert = get_pert(self.cfg['init_pert_type'], size=self.cfg['fs'] * self.cfg['num_of_seconds'])
-        temp_adv_pert = 0
-        print("self.eps_snr = 0.75 ")
-
-        # rndr_eps = np.random.uniform(0.1,self.eps_projection)
-        # # change_eps_projection = math.floor(self.cfg.epochs / 4)
-        # print("rndr_eps: ", rndr_eps)
-        loss_config = "snr" #"pesq_snr" # snr   cosim # "ensemble"
-        # optimizer = AdamW([adv_pert], lr=self.cfg.start_learning_rate)
+        loss_config = "snr"  # "snr" or "cosim"
         optimizer = torch.optim.Adam([adv_pert], lr=self.cfg.start_learning_rate, amsgrad=True)
         scheduler = self.cfg.scheduler_factory(optimizer)
         print("eps_projection: ",self.eps_projection)
@@ -102,94 +73,34 @@ class UniversalAttack:
             running_loss = 0.0
             running_snr = 0.0
             progress_bar = tqdm(enumerate(self.train_loader), desc=f'Epoch {epoch}', total=len(self.train_loader), ncols=150)
-            # prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}'
             prog_bar_desc = 'Batch Loss: {:.6}'  # , SNR: {:.6}'
-
             is_snr = False
-            is_first = False
-            is_ensamble = False
-
-            if loss_config == 'ensemble':
-                is_ensamble = True
-
             if loss_config == "snr":
                 is_snr = True
-                # is_first = True
-
-            # if not epoch == 0:
-            #     adv_pert_sec = get_pert(self.cfg['init_pert_type'], size=self.cfg['fs'] * self.cfg['num_of_seconds'])
-            #     adv_pert.data += adv_pert_sec.data
 
             for i_batch, (cropped_signal_batch, person_ids_batch) in progress_bar:
-                # print("cropped_signal_batch.shape[0]:  " ,cropped_signal_batch.shape[0])
-                if cropped_signal_batch.shape[0] != 64: continue  # batch_size
-
+                if cropped_signal_batch.shape[0] != 64: continue
+                print("adv_pert: ", adv_pert)
                 loss, running_loss, adv_cropped_signal_batch = self.forward_step(adv_pert, cropped_signal_batch,
                                                                                  person_ids_batch, running_loss,
-                                                                                 snr=is_snr, first=is_first,ensamble_mode=is_ensamble)
+                                                                                 snr=is_snr)
+
                 self.similarity_train_values.append(str(round(loss.item(), 5)))
-                # print("cosim loss: ", loss.item())
-                is_first = False
 
-
-
-                ###################################################################################
-
-                #
                 pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
-                # print("\npesq mean: ", pesq_loss)
-
-                # snr_loss = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
-                #                                            cropped_signal_batch.cpu().detach().numpy())
-                # print("snr : ", snr_loss)
-                snr_loss_sec = calculate_snr_github_direct_pkg (adv_cropped_signal_batch.cpu().detach(),
+                snr_loss_sec = calculate_snr_github_direct_pkg(adv_cropped_signal_batch.cpu().detach(),
                                                            cropped_signal_batch).item()
-
-                # print("snr pck: ", snr_loss_sec)
-
-                # temp_loss = ((55 - snr_loss_sec) / 55)  # + (factor_snr/60) 100
-
-                # temp_loss = -snr_loss_sec/65  # + (factor_snr/60) 100
-
-                # print("snr loss : ", temp_loss)
-                # pesq_temp_loss = (4.5 - pesq_loss) / 4.5
-                # print("pesq loss : ", pesq_temp_loss)
-
-                # if loss_config == "snr":
-                #     loss += temp_loss
-
-                # elif loss_config == "pesq_snr":
-                #     loss.data += (0.5 * pesq_temp_loss)  # using pesq + snr
-                #     loss.data += (0.5 * temp_loss)  # using pesq + snr
-                #
 
                 self.snr_train_values.append(str(round(snr_loss_sec, 5)))
                 self.pesq_train_values.append(str(round(pesq_loss, 5)))
-
-                # running_snr += snr_loss
-
-                ###################################################################################
-
                 self.loss_train_values.append(str(round(loss.item(), 5)))
-                # print("loss after: ", loss.item())
 
-########################################################################################
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-
-                # projection - attack wise - self.projection()
                 adv_pert.data = self.projection(adv_pert)
-
-                # clip - stay in audio domain  - adv_pert.clamp(-1, 1)
                 adv_pert.data.clamp(-1, 1)
-
-
                 progress_bar.set_postfix_str(prog_bar_desc.format(running_loss / (i_batch + 1)))
-                                                                  # ,running_snr / (i_batch + 1)))
-
-
-
 
             val_loss = self.evaluate(adv_pert)
             print("evaluate_running_loss: ",val_loss)
@@ -197,109 +108,39 @@ class UniversalAttack:
             scheduler.step(val_loss)
 
         self.save_files(adv_pert)
-        print("sims: ", self.similarity_train_values )
-        print("snr: ", self.snr_train_values )
-        print("pesq: ", self.pesq_train_values )
-        print("eval sims: ", self.loss_eval_values)
-        print("snr sims: ", self.snr_eval_values)
 
-    def apply_perturbation(self, input, adv_pert, clip=True):
-        input = input.to(self.cfg['device'])
+    def apply_perturbation(self, input_batch, adv_pert, clip=True):
+        input_batch = input_batch.to(self.cfg['device'])
         adv_pert = adv_pert.to(self.cfg['device'])
-
-        # adv = input + self.projection(adv_pert)
-                              #with EPS= 0.1  #  Batch Loss: 0.494944, SNR: 15.0485, SIMS: 0.376576]
-        # adv = custom_clip(input, input + adv_pert, 0.01) # self.cfg['device']
-        adv = input + adv_pert #* EPS  # EPS=0.1   Batch Loss: 0.649802, SNR: 20.1466, SIMS: 0.446894] multiply by epsilon work
-        # adv = input + adv_pert * EPS  #EPS=0.5  Batch Loss: 0.346293, SNR: 4.0024, SIMS: 0.330975]
-        # adv = input + adv_pert   #  EPS=1       Batch Loss: 0.278237, SNR: -0.228931, SIMS: 0.297413]
+        adv = input_batch + adv_pert
         if clip:
-            adv.data.clamp_(-1, 1)  # clip with eps 0.1 get sims less then 0.5
-        del input
+            adv.data.clamp_(-1, 1)
+        del input_batch
         del adv_pert
         torch.cuda.empty_cache()
         return adv
 
-    # def momentom_norm(self,x_adv,targets, momentum):
-    #     decay = 0.1
-    #     tol = 10e-8
-    #     targeted = True
-    #     adv_x_shape = x_adv.shape
-    #
-    #     grad, loss_value = self.loss_fn(x_adv, targets)
-    #     grad = grad * (1 - 2 * int(targeted))
-    #     if torch.any(grad.isnan()):
-    #         grad[grad.isnan()] = 0.0
-    #
-    #     ind = tuple(range(1, len(adv_x.shape)))
-    #     grad = grad / (torch.sum(grad.abs(), dim=ind, keepdims=True) + tol)  # type: ignore
-    #     grad = decay * momentum + grad
-    #     # Accumulate the gradient for the next iter
-    #     momentum += grad
-    #
-    #     ind = tuple(range(1, len(adv_x_shape)))
-    #     grad = grad / (torch.sqrt(torch.sum(grad * grad, dim=ind, keepdim=True)) + tol)
-    #     return grad
-    def forward_step_ensemble(self, adv_pert, cropped_signal_batch, person_ids_batch, running_loss, snr, first, ensamble_mode):
-        alpha = 0.75
+    def forward_step(self, adv_pert, cropped_signal_batch, person_ids_batch, running_loss, snr):
 
         cropped_signal_batch = cropped_signal_batch.to(self.cfg['device'])
         person_ids_batch = person_ids_batch.to(self.cfg['device'])
         adv_pert = adv_pert.to(self.cfg['device'])
-
         adv_batch = self.apply_perturbation(cropped_signal_batch, adv_pert)
         adv_embs = self.model.encode_batch(adv_batch)
         loss = self.loss_fn(adv_embs, person_ids_batch)
-        # if not first:
-        # if snr:
-        #     snr_loss_sec = calculate_snr_github_direct_pkg(adv_batch.cpu().detach(),
-        #                                                    cropped_signal_batch.cpu().detach()).item()
-        #     temp_loss = ((60 - snr_loss_sec) / 60) * 1000   # + (factor_snr/60) 100
-        #     # temp_loss = snr_loss_sec * 10
-        #     loss = loss * (1-alpha)
-        #     loss += temp_loss
-        running_loss += loss.item()
-        del cropped_signal_batch
-        del person_ids_batch
-        del adv_pert
-        torch.cuda.empty_cache()
-        return loss, running_loss, adv_batch
 
-    def forward_step(self, adv_pert, cropped_signal_batch, person_ids_batch, running_loss, snr, first, ensamble_mode):
-        alpha = 0.75
-
-        cropped_signal_batch = cropped_signal_batch.to(self.cfg['device'])
-        person_ids_batch = person_ids_batch.to(self.cfg['device'])
-        adv_pert = adv_pert.to(self.cfg['device'])
-
-        adv_batch = self.apply_perturbation(cropped_signal_batch, adv_pert)
-        adv_embs = self.model.encode_batch(adv_batch)
-        loss = self.loss_fn(adv_embs, person_ids_batch)
-        # if not first:
         if snr:
             snr_loss_sec = calculate_snr_github_direct_pkg(adv_batch,
-                                                           cropped_signal_batch).item()
-            temp_loss = ((60 - snr_loss_sec) / 60) * 100   # + (factor_snr/60) 100
-            # temp_loss = snr_loss_sec * 10
-            loss = loss * (1-alpha)
-            loss += temp_loss
+                                                       cropped_signal_batch)
+            snr_loss = ((125 - snr_loss_sec) / 125) * self.alpha_snr
+
+            loss += snr_loss
+
         running_loss += loss.item()
         del cropped_signal_batch
         del person_ids_batch
         del adv_pert
         torch.cuda.empty_cache()
-        return loss, running_loss, adv_batch
-
-    def forward_step_eval(self, adv_pert, cropped_signal_batch, person_ids_batch, running_loss):
-        cropped_signal_batch = cropped_signal_batch.to(self.cfg['device'])
-        person_ids_batch = person_ids_batch.to(self.cfg['device'])
-        adv_pert = adv_pert.to(self.cfg['device'])
-
-        adv_batch = self.apply_perturbation(cropped_signal_batch, adv_pert)
-        adv_embs = self.model.encode_batch(adv_batch)
-        loss = self.loss_fn(adv_embs, person_ids_batch)
-        running_loss += loss.item()
-        # return loss, running_loss
         return loss, running_loss, adv_batch
 
     def loss_fn(self, adv_embs, speaker_ids):
@@ -309,28 +150,13 @@ class UniversalAttack:
             loss += loss_weight * loss_fn(adv_embs, gt_embeddings).squeeze().mean()
         return loss
 
-    #
-    # def projection(self,values):
-    #     tol = 10e-8
-    #     # values = values.to(self.cfg['device'])
-    #     values_tmp = values.reshape(values.shape[0], -1)#.to(self.cfg['device'])
-    #     values_tmp = (values_tmp *
-    #                   torch.min(
-    #                       torch.tensor([1.0], dtype=torch.float32),#.to(self.cfg['device']),
-    #                       self.eps_projection / (torch.norm(values_tmp, p=2, dim=1) + tol),#.to(self.cfg['device']),
-    #                   ).unsqueeze_(-1)
-    #                   )
-    #     del values
-    #     torch.cuda.empty_cache()
-    #     return values_tmp
-
-    def projection(self,values):
+    def projection(self, values):
         tol = 10e-8
         values_tmp = values.reshape(values.shape[0], -1)
         if self.norm == 2:
             values_tmp = (values_tmp *
                           torch.min(
-                              torch.tensor([1.0], dtype=torch.float32),#.to(self.device),
+                              torch.tensor([1.0], dtype=torch.float32),
                               self.eps_projection / (torch.norm(values_tmp, p=2, dim=1) + tol),
                           ).unsqueeze_(-1)
                           )
@@ -350,64 +176,34 @@ class UniversalAttack:
         torch.cuda.empty_cache()
         return values
 
-
-
     @torch.no_grad()
     def evaluate(self, adv_pert):
         self.counter += 1
-        dim = 1 if self.cfg['model_name'] == 'wavlm' else 2
-        sims = CosineSimilaritySims(dim=dim)
-        curr_speakers=self.speaker_embeddings.clone().cpu()
         running_loss = 0.0
         running_snr = 0.0
         running_sims = 0.0
-        similarity_values = []
-        similarity_snr = []
         progress_bar = tqdm(enumerate(self.val_loader), desc=f'Eval', total=len(self.val_loader), ncols=150)
-        prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}' #, SIMS: {:.6}'
+        prog_bar_desc = 'Batch Loss: {:.6}, SNR: {:.6}'
         for i_batch, (cropped_signal_batch, person_ids_batch) in progress_bar:
-            if cropped_signal_batch.shape[0] != 64 : continue #  batch_size
-            loss, running_loss, adv_cropped_signal_batch = self.forward_step_eval(adv_pert, cropped_signal_batch, person_ids_batch, running_loss)
-            # adv_snr = calculate_snr_github_direct(adv_cropped_signal_batch.cpu().detach().numpy(),
-            #                                       cropped_signal_batch.cpu().detach().numpy())
+            if cropped_signal_batch.shape[0] != 64: continue
+            loss, running_loss, adv_cropped_signal_batch = self.forward_step(adv_pert, cropped_signal_batch,
+                                                                                  person_ids_batch, running_loss,
+                                                                             snr=True)
 
             adv_snr = calculate_snr_github_direct_pkg(adv_cropped_signal_batch.cpu().detach(),
                                                            cropped_signal_batch).item()
 
-            # temp_emb = self.model.encode_batch(cropped_signal_batch + adv_pert).cpu() # TODO: can be change using adv_cropped_signal_batch?
-            # temp_labels = torch.index_select(curr_speakers, index=person_ids_batch, dim=0).cpu()
-            # adv_sims = sims(temp_emb, temp_labels).mean()
-            # print("\nadv_snr: ",adv_snr)
-
-            # pesq_loss = PESQ(cropped_signal_batch, adv_cropped_signal_batch)
-            # print("pesq: ", pesq_loss)
-
-            # print("adv_snr TYPE:" , type(adv_snr))
-            # self.similarity_eval_values.append(str(round(adv_sims.item(), 5)))
-
-            # similarity_values.append(round(loss.item(), 5))
-            # similarity_snr.append(round(adv_snr, 5))
-
             self.loss_eval_values.append(round(loss.item(), 5))
-            self.snr_eval_values.append(round(adv_snr, 5))  # str(round(adv_snr, 5)))
+            self.snr_eval_values.append(round(adv_snr, 5))
 
-            # self.pesq_eval_values.append(str(round(pesq_loss, 5)))
-            # print("sims: ", str(round(loss.item(), 5)))
             running_snr += adv_snr
             running_sims += round(loss.item(), 5)
             progress_bar.set_postfix_str(prog_bar_desc.format(running_loss / (i_batch + 1),
                                                               running_snr / (i_batch + 1)))
-                                                              # ,running_sims / (i_batch + 1)))
 
-        # self.similarity_values.append(similarity_values)
-        # self.loss_eval_values.append(mean(similarity_values))#str(round(loss.item(), 5)))
-        # self.snr_eval_values.append(mean(similarity_snr))#str(round(adv_snr, 5)))
         return running_loss / len(self.val_loader)
 
-    def save_eval(self):
-        pass
-
-    def save_files(self,adv_pert):
+    def save_files(self, adv_pert):
         self.register_similarity_values(self.counter)
         self.register_snr_values(self.counter)
         self.register_loss_values(self.counter)
@@ -416,9 +212,6 @@ class UniversalAttack:
         save_audio_as_wav(self.cfg['current_dir'], adv_pert.detach(), "perturbation", 'uap_ep100_spk100.wav')
         save_emb_as_npy(self.cfg['current_dir'], adv_pert.detach().numpy(), "perturbation", 'uap_ep100_spk100')
         save_to_pickle(self.cfg['current_dir'], self.speaker_embeddings, "embedding", 'speaker_embeddings')
-
-    def get_current_dir(self):
-        return self.cfg['current_dir']
 
     def register_pesq_values(self, batch_id):
         batch_result = pd.Series([f'batch_train_{batch_id}'] + self.pesq_train_values)
@@ -452,9 +245,7 @@ class UniversalAttack:
 
 def main():
 
-
     torch.cuda.empty_cache()
-    curr_eps = EPS
     config_type = 'Universal'
     cfg = config_dict[config_type]()
     attack = UniversalAttack(cfg)
@@ -462,7 +253,6 @@ def main():
     print("finish main: ")
     torch.cuda.empty_cache()
     gc.collect()
-    print("using: ",curr_eps )
 
 
 if __name__ == '__main__':
